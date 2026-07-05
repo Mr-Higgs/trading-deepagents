@@ -1,0 +1,18 @@
+# Versioned strategy config. Bump `version` on any rule change; every trade is tagged with it.
+version: "v1.0.0"
+instrument: AUD_USD
+timeframes:
+  trend: H4     # cloud direction = long/short bias
+  bias: H1      # pullback context
+  entry: M15    # trigger candle + decision clock
+ichimoku:
+  tenkan: 9
+  kijun: 26
+  senkou_b: 52
+  displacement: 26
+setup:
+  h1_pullback_band: 0.0015   # max distance (price) from Tenkan/Kijun zone to count as a pullback
+  m15_trigger: engulfing     # reversal candle back in trend direction
+  stop_rule: kijun           # "kijun" | "cloud" — stop placed beyond this level
+  stop_buffer_pips: 3
+  rr: 2.0                     # take-profit = entry +/- rr * stop_distance

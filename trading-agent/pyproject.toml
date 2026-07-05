@@ -1,0 +1,30 @@
+[project]
+name = "trading-agent"
+version = "0.1.0"
+description = "Phase 1 deterministic forex money-core: OANDA data -> Ichimoku pullback signals -> risk engine -> paper execution -> journal."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "oandapyV20>=0.7.2",
+    "requests>=2.31",   # oandapyV20 imports it but doesn't pin it in its metadata
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+# ponytail: deepagents (+ its langchain/langgraph stack) is deferred to this group so a Phase-1
+# `uv sync` stays lean. Phase 2 wires it in via `uv sync --group phase2`. Editable source below.
+phase2 = ["deepagents"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+deepagents = { path = "../libs/deepagents", editable = true }
+
+[tool.ruff]
+line-length = 150
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

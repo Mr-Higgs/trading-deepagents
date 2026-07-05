@@ -1,0 +1,7 @@
+# Instruments. pip_location is the power of ten of one pip (-4 => 1 pip = 0.0001).
+AUD_USD:
+  oanda_symbol: AUD_USD
+  pip_location: -4
+  quote_ccy: USD          # == account_ccy, so units = risk_amount / stop_distance holds directly
+  min_units: 1
+  max_units: 100000

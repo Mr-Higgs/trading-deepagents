@@ -1,0 +1,13 @@
+# Hard risk rules (spec). Money logic reads these; nothing here is discretionary.
+account_ccy: USD
+risk_pct: 0.01                  # max 1% equity risked per trade
+max_trades_per_day: 3           # spec: max 2-3 trades/day
+max_daily_loss_pct: 0.03        # halt the day if realized loss breaches this
+trading_day_reset_utc: "21:00"  # broker rollover = day boundary for counts/loss (NOT UTC midnight)
+kill_switch: false              # flip true to block all new entries immediately
+news_windows: []                # [{start: <iso>, end: <iso>, reason: str}] — manual for v1
+
+execution:
+  backend: simulated            # "simulated" (default) | "oanda" (paper account, built last)
+  sim_spread_pips: 1.2
+  sim_slippage_pips: 0.3

@@ -1,0 +1,7 @@
+# Session gating. Times are LOCAL to `timezone`; zoneinfo handles GMT/BST DST automatically,
+# so we never hardcode a UTC offset.
+timezone: Europe/London
+london:
+  start: "07:00"
+  end: "16:00"
+  weekdays: [Mon, Tue, Wed, Thu, Fri]
