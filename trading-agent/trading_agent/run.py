@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,7 +42,38 @@ def _make_backend(cfg):
     raise ValueError(msg)
 
 
+def _load_env(path: Path = Path(".env")) -> None:
+    """Minimal .env loader so the CLI sees OANDA/ANTHROPIC keys.
+
+    `langgraph dev` loads .env itself (per langgraph.json); the CLI doesn't, so do it here. Real
+    exported env vars win (setdefault). ponytail: stdlib parse, no python-dotenv dep for the lean path.
+    """
+    if not path.exists():
+        return
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
+def _live_strategy(cfg, choice: str):
+    """Deterministic IchimokuPullback, or (agent) wrap it in the deepagents confirmation gate."""
+    inner = IchimokuPullback(cfg.strategy, cfg.pair)
+    mode = cfg.agents.mode if choice == "config" else choice
+    if mode != "agent":
+        return inner
+    # lazy: only the agent path pulls in the deepagents/langchain stack (uv sync --group phase2)
+    from trading_agent.strategy.agent_strategy import AgentStrategy
+    from trading_agent.strategy.agents.orchestrator import build_orchestrator
+
+    return AgentStrategy(inner, build_orchestrator(cfg), cfg.pair)
+
+
 def cmd_backtest(args: argparse.Namespace) -> None:
+    if args.strategy == "agent":
+        raise SystemExit("the agent strategy is live/forward only; backtest always uses the deterministic IchimokuPullback")
     from trading_agent.marketdata.oanda_client import OandaClient  # lazy: keeps CLI parsing free of the network stack
 
     cfg = load_config(args.config)
@@ -64,13 +96,14 @@ def cmd_live(args: argparse.Namespace) -> None:
     client = OandaClient.from_env()
     tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
     source = LiveOandaSource(client, cfg.pair.symbol, tfs, poll_seconds=args.poll)
+    strategy = _live_strategy(cfg, args.strategy)
     run_id = f"live-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"  # wall clock is fine here (live, not a deterministic backtest)
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
     log = EventLog(log_path, run_id=run_id, strategy_version=cfg.strategy_version)
-    print(f"live: {cfg.pair.symbol} {cfg.strategy.entry_tf} backend={cfg.risk.execution.backend} poll={args.poll}s | log {log_path}")
+    print(f"live: {cfg.pair.symbol} {cfg.strategy.entry_tf} strategy={strategy.version} backend={cfg.risk.execution.backend} poll={args.poll}s | log {log_path}")
     print("Ctrl-C to stop.")
     try:
-        engine.run(source, IchimokuPullback(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair), _make_backend(cfg), log, cfg, starting_equity=args.equity)
+        engine.run(source, strategy, RiskEngine(cfg.risk, cfg.pair), _make_backend(cfg), log, cfg, starting_equity=args.equity)
     except KeyboardInterrupt:
         print("\nstopped.")
     finally:
@@ -78,6 +111,7 @@ def cmd_live(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    _load_env()  # load ./.env (run from the trading-agent dir) so OANDA/ANTHROPIC keys are visible
     p = argparse.ArgumentParser(prog="trading_agent.run")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -88,6 +122,7 @@ def main() -> None:
     b.add_argument("--cache", default="data/candles")
     b.add_argument("--logdir", default="data/logs")
     b.add_argument("--equity", type=float, default=10_000.0)
+    b.add_argument("--strategy", choices=["deterministic", "agent"], default="deterministic", help="'agent' is rejected: live/forward only")
     b.set_defaults(func=cmd_backtest)
 
     live = sub.add_parser("live", help="poll OANDA and paper-trade (simulated fills by default)")
@@ -95,6 +130,7 @@ def main() -> None:
     live.add_argument("--logdir", default="data/logs")
     live.add_argument("--poll", type=int, default=60, help="seconds between polls")
     live.add_argument("--equity", type=float, default=10_000.0)
+    live.add_argument("--strategy", choices=["config", "deterministic", "agent"], default="config", help="'config' uses agents.yaml mode")
     live.set_defaults(func=cmd_live)
 
     args = p.parse_args()

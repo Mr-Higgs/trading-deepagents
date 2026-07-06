@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time
 from pathlib import Path
 from typing import Any
@@ -93,12 +93,27 @@ class StrategyConfig:
 
 
 @dataclass(frozen=True)
+class AgentsConfig:
+    """Phase-2 LLM confirmation gate. Defaults => deterministic; agents.yaml is optional."""
+
+    mode: str = "deterministic"  # "deterministic" | "agent"
+    orchestrator_model: str = "anthropic:claude-opus-4-8"
+    analyst_model: str = "anthropic:claude-haiku-4-5"
+    technical: bool = True
+    fundamental: bool = True
+    sentiment: bool = True
+    veto_default: bool = False
+    cftc_code: str = "232741"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     pairs: dict[str, PairConfig]
     session: SessionConfig
     risk: RiskConfig
     strategy: StrategyConfig
     config_dir: Path
+    agents: AgentsConfig = field(default_factory=AgentsConfig)
 
     @property
     def strategy_version(self) -> str:
@@ -191,4 +206,18 @@ def load_config(config_dir: str | Path) -> AppConfig:
         msg = f"strategy instrument {strategy.instrument!r} not defined in pairs.yaml"
         raise ValueError(msg)
 
-    return AppConfig(pairs=pairs, session=session, risk=risk, strategy=strategy, config_dir=config_dir)
+    agents_path = config_dir / "agents.yaml"
+    agents_raw = _load_yaml(agents_path) if agents_path.exists() else {}
+    an = agents_raw.get("analysts") or {}
+    agents = AgentsConfig(
+        mode=agents_raw.get("mode", "deterministic"),
+        orchestrator_model=agents_raw.get("orchestrator_model", "anthropic:claude-opus-4-8"),
+        analyst_model=agents_raw.get("analyst_model", "anthropic:claude-haiku-4-5"),
+        technical=bool(an.get("technical", True)),
+        fundamental=bool(an.get("fundamental", True)),
+        sentiment=bool(an.get("sentiment", True)),
+        veto_default=bool(agents_raw.get("veto_default", False)),
+        cftc_code=str(agents_raw.get("cftc_code", "232741")),
+    )
+
+    return AppConfig(pairs=pairs, session=session, risk=risk, strategy=strategy, config_dir=config_dir, agents=agents)

@@ -14,6 +14,7 @@ from oandapyV20 import API
 from oandapyV20.endpoints.instruments import InstrumentsCandles
 
 from trading_agent.marketdata.base import FRAME_COLUMNS, normalize_frame
+from trading_agent.oanda_env import practice_environment
 
 _GRAN_DELTA = {"M15": timedelta(minutes=15), "H1": timedelta(hours=1), "H4": timedelta(hours=4)}
 _PRICE_KEY = {"M": "mid", "B": "bid", "A": "ask"}
@@ -46,7 +47,7 @@ class OandaClient:
 
     @classmethod
     def from_env(cls) -> OandaClient:
-        return cls(os.environ["OANDA_API_KEY"], os.environ.get("OANDA_ENV", "practice"))
+        return cls(os.environ["OANDA_API_KEY"], practice_environment())  # refuses OANDA_ENV != practice
 
     def candles(self, instrument: str, granularity: str, start: datetime, end: datetime, price: str = "M") -> pd.DataFrame:
         """Fetch complete candles in [start, end), paginating past the 5000-candle cap."""

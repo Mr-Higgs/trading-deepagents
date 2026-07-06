@@ -14,7 +14,9 @@ dependencies = [
 dev = ["pytest>=8.0"]
 # ponytail: deepagents (+ its langchain/langgraph stack) is deferred to this group so a Phase-1
 # `uv sync` stays lean. Phase 2 wires it in via `uv sync --group phase2`. Editable source below.
-phase2 = ["deepagents"]
+# langchain-anthropic: init_chat_model("anthropic:...") + ANTHROPIC_API_KEY. httpx: analyst data tools.
+# langgraph-cli[inmem]: `langgraph dev` server that exposes trading_agent/graph.py to the Deep Agents UI.
+phase2 = ["deepagents", "langchain-anthropic", "httpx", "langgraph-cli[inmem]>=0.1.55"]
 
 [tool.uv]
 package = false

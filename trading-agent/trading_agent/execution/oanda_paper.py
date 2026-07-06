@@ -20,6 +20,7 @@ import oandapyV20.endpoints.trades as trades
 import oandapyV20.endpoints.transactions as transactions
 from oandapyV20 import API
 
+from trading_agent.oanda_env import practice_account_id, practice_environment
 from trading_agent.types import Candle, OrderRequest, TradeEvent
 
 _EXIT_REASON = {"TAKE_PROFIT_ORDER": "TP", "STOP_LOSS_ORDER": "STOP"}
@@ -37,7 +38,8 @@ class OandaPaperBackend:
 
     @classmethod
     def from_env(cls, instrument: str, price_precision: int = 5) -> OandaPaperBackend:
-        return cls(os.environ["OANDA_API_KEY"], os.environ["OANDA_ACCOUNT_ID"], instrument, os.environ.get("OANDA_ENV", "practice"), price_precision)
+        # guards: refuse a non-practice env or a non-101- (live) account before any order can be placed
+        return cls(os.environ["OANDA_API_KEY"], practice_account_id(), instrument, practice_environment(), price_precision)
 
     def _px(self, p: float) -> str:
         return f"{p:.{self._precision}f}"
