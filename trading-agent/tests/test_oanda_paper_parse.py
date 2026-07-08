@@ -12,6 +12,10 @@ NOW = datetime(2026, 1, 6, 8, 30, tzinfo=timezone.utc)
 def _backend() -> OandaPaperBackend:
     b = OandaPaperBackend.__new__(OandaPaperBackend)  # bypass network __init__
     b._trade_map = {}
+    b._open = {}
+    b._pending_meta = {}
+    b._local_partials = set()
+    b._instrument = "AUD_USD"
     return b
 
 
@@ -47,3 +51,22 @@ def test_stop_loss_close():
 
 def test_non_fill_transactions_ignored():
     assert _backend()._events_from_transactions([{"type": "HEARTBEAT"}, {"type": "ORDER_CANCEL"}], NOW) == []
+
+
+def test_trade_reduced_partial_close():
+    from trading_agent.execution.oanda_paper import _OandaOpen
+
+    b = _backend()
+    b._trade_map = {"101": "S-t1"}
+    b._open["S-t1"] = _OandaOpen("101", "AUD_USD", 10000, 10000, 0.67, 0.66, 0.66, 0.68)
+    reduced_txn = {
+        "type": "ORDER_FILL",
+        "price": "0.67200",
+        "reason": "MARKET_ORDER",
+        "tradeReduced": {"tradeID": "101", "units": "-5000", "realizedPL": "10.0"},
+    }
+    (exit_ev,) = b._events_from_transactions([reduced_txn], NOW)
+    assert exit_ev.partial
+    assert exit_ev.exit_reason == "SCALE_OUT"
+    assert exit_ev.pnl == 10.0
+    assert b._open["S-t1"].units == 5000

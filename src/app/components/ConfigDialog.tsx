@@ -77,7 +77,7 @@ export function ConfigDialog({
             <Label htmlFor="deploymentUrl">Deployment URL</Label>
             <Input
               id="deploymentUrl"
-              placeholder="https://<deployment-url>"
+              placeholder="http://127.0.0.1:2024"
               value={deploymentUrl}
               onChange={(e) => setDeploymentUrl(e.target.value)}
             />
@@ -86,7 +86,7 @@ export function ConfigDialog({
             <Label htmlFor="assistantId">Assistant ID</Label>
             <Input
               id="assistantId"
-              placeholder="<assistant-id>"
+              placeholder="trade_loop"
               value={assistantId}
               onChange={(e) => setAssistantId(e.target.value)}
             />

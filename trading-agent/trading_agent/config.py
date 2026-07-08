@@ -53,6 +53,38 @@ class NewsWindow:
 
 
 @dataclass(frozen=True)
+class ScaleLeg:
+    """One scale-out leg: bank `fraction` of the original position at an Ichimoku `level`."""
+
+    level: str  # "kijun" | "span_a" | "span_b" | "tenkan"
+    fraction: float
+
+
+@dataclass(frozen=True)
+class ScaleOutConfig:
+    """Scaled exit: partial banks at Ichimoku levels, runner trails the remainder."""
+
+    enabled: bool = False
+    legs: tuple[ScaleLeg, ...] = ()
+    move_be_after_first: bool = True  # after leg 1, move stop to breakeven + buffer
+    runner_trail: str = "off"  # "off" | "kijun" | "pips" — trail mode for the final remainder
+
+
+@dataclass(frozen=True)
+class ManagementConfig:
+    """In-trade stop management (defaults are no-ops => omitting the block = hold-to-stop/TP behavior)."""
+
+    breakeven_enabled: bool = False  # master switch for move-to-breakeven + trailing
+    breakeven_trigger_r: float = 1.0  # R-multiple BE arm when breakeven_trigger_pips == 0
+    breakeven_trigger_pips: float = 0.0  # arm BE once price runs this many pips in favor (>0 => pip trigger wins)
+    breakeven_buffer_pips: float = 1.0  # BE stop offset from entry (0 = true entry / risk-free at 0)
+    trail_mode: str = "off"  # "off" | "kijun" | "pips" — how to trail once at breakeven
+    trail_buffer_pips: float = 0.0  # (kijun trail) gap from the Kijun; 0 => fall back to breakeven_buffer_pips
+    trail_distance_pips: float = 10.0  # trail distance when trail_mode == "pips"
+    scale_out: ScaleOutConfig = field(default_factory=ScaleOutConfig)
+
+
+@dataclass(frozen=True)
 class RiskConfig:
     account_ccy: str
     risk_pct: float
@@ -62,6 +94,11 @@ class RiskConfig:
     kill_switch: bool
     news_windows: tuple[NewsWindow, ...]
     execution: ExecutionConfig
+    # v1.1 containment (defaults are no-ops so a config omitting them behaves exactly like v1.0):
+    max_concurrent_positions: int = 1_000_000  # cap simultaneous open positions (kills correlated stacking)
+    min_stop_pips: float = 0.0  # reject signals whose stop is tighter than this (avoids oversized positions + cost drag)
+    min_rr: float = 1.0  # reject signals whose reward/risk ratio is below this floor
+    management: ManagementConfig = field(default_factory=ManagementConfig)
 
 
 @dataclass(frozen=True)
@@ -86,10 +123,26 @@ class StrategyConfig:
     entry_tf: str
     ichimoku: IchimokuParams
     h1_pullback_band: float
-    m15_trigger: str
-    stop_rule: str  # "kijun" | "cloud"
+    m15_trigger: tuple[str, ...]  # candlestick pattern(s) that trigger entry; any match fires
+    stop_rule: str  # "kijun" | "cloud" | "atr"
     stop_buffer_pips: float
     rr: float
+    min_trend_distance_pips: float = 0.0  # v1.1: price must clear the cloud by this much (skip thin-cloud chop); 0 = no filter
+    # v1.2 (defaults are no-ops so a config omitting them behaves exactly like v1.1):
+    name: str = "ichimoku_pullback"  # which strategy: "ichimoku_pullback" | "ichimoku_breakout"
+    require_tk_momentum: bool = False  # Tenkan/Kijun must agree with direction
+    require_chikou: bool = False  # Chikou (close) vs price 26 bars ago must confirm
+    breakout_ref: str = "cloud"  # ichimoku_breakout entry ref: "cloud" | "base"
+    # v2.0 WFX:
+    atr_length: int = 14  # ATR lookback for the volatility stop (only used when stop_rule == "atr")
+    atr_mult: float = 2.75  # stop distance = atr(atr_length) * atr_mult (WFX default)
+    exit_on_kijun_cross: bool = False  # WFX early exit: close a position on a Kijun / Tenkan-Kijun cross against it
+    # v3.0 confluence (only used when name == "ichimoku_confluence"; no-op defaults otherwise):
+    confluence_min_score: float = 4.0  # min |weighted multi-TF vote| to allow a trade
+    confluence_signals: tuple[str, ...] = ("kijun", "span_a", "span_b", "cloud")  # price-vs-level votes to count
+    entry_trigger: str = "pullback"  # which inner strategy triggers: "pullback" | "breakout"
+    tp_mode: str = "ichimoku_level"  # "ichimoku_level" (next level top-down) | "rr" (inner's R:R TP)
+    require_thinning_cloud: bool = False  # reserved: favor breakouts when the M15 cloud is diminishing
 
 
 @dataclass(frozen=True)
@@ -109,7 +162,7 @@ class AgentsConfig:
 @dataclass(frozen=True)
 class AppConfig:
     pairs: dict[str, PairConfig]
-    session: SessionConfig
+    sessions: tuple[SessionConfig, ...]  # active sessions; a bar trades if it falls in ANY of them
     risk: RiskConfig
     strategy: StrategyConfig
     config_dir: Path
@@ -147,13 +200,23 @@ def load_config(config_dir: str | Path) -> AppConfig:
         for sym, v in pairs_raw.items()
     }
 
-    london = sessions_raw["london"]
-    session = SessionConfig(
-        timezone=sessions_raw["timezone"],
-        start=_parse_time(london["start"]),
-        end=_parse_time(london["end"]),
-        weekdays=frozenset(_WEEKDAYS[d] for d in london["weekdays"]),
-    )
+    # Each named block is a session preset (its own timezone); `active` lists which to trade.
+    presets = {
+        name: SessionConfig(
+            timezone=blk["timezone"],
+            start=_parse_time(blk["start"]),
+            end=_parse_time(blk["end"]),
+            weekdays=frozenset(_WEEKDAYS[d] for d in blk["weekdays"]),
+        )
+        for name, blk in sessions_raw.items()
+        if name != "active" and isinstance(blk, dict)
+    }
+    active_names = sessions_raw.get("active") or ["london"]
+    missing = [n for n in active_names if n not in presets]
+    if missing:
+        msg = f"sessions.yaml: active session(s) {missing} not defined (have {sorted(presets)})"
+        raise ValueError(msg)
+    sessions = tuple(presets[n] for n in active_names)
 
     ex = risk_raw["execution"]
     execution = ExecutionConfig(
@@ -169,6 +232,28 @@ def load_config(config_dir: str | Path) -> AppConfig:
         )
         for w in (risk_raw.get("news_windows") or [])
     )
+    mgmt_raw = risk_raw.get("management") or {}
+    scale_raw = mgmt_raw.get("scale_out") or {}
+    scale_legs = tuple(
+        ScaleLeg(level=str(leg["level"]), fraction=float(leg["fraction"]))
+        for leg in (scale_raw.get("legs") or [])
+    )
+    scale_out = ScaleOutConfig(
+        enabled=bool(scale_raw.get("enabled", False)),
+        legs=scale_legs,
+        move_be_after_first=bool(scale_raw.get("move_be_after_first", True)),
+        runner_trail=str(scale_raw.get("runner_trail", "off")),
+    )
+    management = ManagementConfig(
+        breakeven_enabled=bool(mgmt_raw.get("breakeven_enabled", False)),
+        breakeven_trigger_r=float(mgmt_raw.get("breakeven_trigger_r", 1.0)),
+        breakeven_trigger_pips=float(mgmt_raw.get("breakeven_trigger_pips", 0.0)),
+        breakeven_buffer_pips=float(mgmt_raw.get("breakeven_buffer_pips", 1.0)),
+        trail_mode=str(mgmt_raw.get("trail_mode", "off")),
+        trail_buffer_pips=float(mgmt_raw.get("trail_buffer_pips", 0.0)),
+        trail_distance_pips=float(mgmt_raw.get("trail_distance_pips", 10.0)),
+        scale_out=scale_out,
+    )
     risk = RiskConfig(
         account_ccy=risk_raw["account_ccy"],
         risk_pct=float(risk_raw["risk_pct"]),
@@ -178,6 +263,10 @@ def load_config(config_dir: str | Path) -> AppConfig:
         kill_switch=bool(risk_raw["kill_switch"]),
         news_windows=news,
         execution=execution,
+        max_concurrent_positions=int(risk_raw.get("max_concurrent_positions", 1_000_000)),
+        min_stop_pips=float(risk_raw.get("min_stop_pips", 0.0)),
+        min_rr=float(risk_raw.get("min_rr", 1.0)),
+        management=management,
     )
 
     tf = strat_raw["timeframes"]
@@ -196,10 +285,23 @@ def load_config(config_dir: str | Path) -> AppConfig:
             displacement=int(ich["displacement"]),
         ),
         h1_pullback_band=float(setup["h1_pullback_band"]),
-        m15_trigger=setup["m15_trigger"],
+        m15_trigger=tuple(setup["m15_trigger"]) if isinstance(setup["m15_trigger"], list) else (setup["m15_trigger"],),
         stop_rule=setup["stop_rule"],
         stop_buffer_pips=float(setup["stop_buffer_pips"]),
         rr=float(setup["rr"]),
+        min_trend_distance_pips=float(setup.get("min_trend_distance_pips", 0.0)),
+        name=str(strat_raw.get("name", "ichimoku_pullback")),
+        require_tk_momentum=bool(setup.get("require_tk_momentum", False)),
+        require_chikou=bool(setup.get("require_chikou", False)),
+        breakout_ref=str(setup.get("breakout_ref", "cloud")),
+        atr_length=int(setup.get("atr_length", 14)),
+        atr_mult=float(setup.get("atr_mult", 2.75)),
+        exit_on_kijun_cross=bool(setup.get("exit_on_kijun_cross", False)),
+        confluence_min_score=float(setup.get("confluence_min_score", 4.0)),
+        confluence_signals=tuple(setup["confluence_signals"]) if isinstance(setup.get("confluence_signals"), list) else ("kijun", "span_a", "span_b", "cloud"),
+        entry_trigger=str(setup.get("entry_trigger", "pullback")),
+        tp_mode=str(setup.get("tp_mode", "ichimoku_level")),
+        require_thinning_cloud=bool(setup.get("require_thinning_cloud", False)),
     )
 
     if strategy.instrument not in pairs:
@@ -220,4 +322,4 @@ def load_config(config_dir: str | Path) -> AppConfig:
         cftc_code=str(agents_raw.get("cftc_code", "232741")),
     )
 
-    return AppConfig(pairs=pairs, session=session, risk=risk, strategy=strategy, config_dir=config_dir, agents=agents)
+    return AppConfig(pairs=pairs, sessions=sessions, risk=risk, strategy=strategy, config_dir=config_dir, agents=agents)

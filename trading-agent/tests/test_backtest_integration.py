@@ -81,7 +81,7 @@ def _cfg() -> AppConfig:
 
     from conftest import make_strategy
 
-    return AppConfig(pairs={"AUD_USD": make_pair()}, session=session, risk=make_risk(), strategy=make_strategy(), config_dir=None)
+    return AppConfig(pairs={"AUD_USD": make_pair()}, sessions=(session,), risk=make_risk(), strategy=make_strategy(), config_dir=None)
 
 
 def _run(path) -> float:

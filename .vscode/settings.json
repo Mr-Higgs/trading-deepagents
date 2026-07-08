@@ -1,7 +1,11 @@
 {
   "prettier.enable": false,
   "python.analysis.include": [
-    "libs/**"
+    "libs/**",
+    "trading-agent/**"
+  ],
+  "python.analysis.extraPaths": [
+    "trading-agent"
   ],
   "python.analysis.exclude": [
     "**/node_modules",
@@ -67,7 +71,7 @@
     "editor.insertSpaces": true
   },
   "python.terminal.activateEnvironment": false,
-  "python.defaultInterpreterPath": "./.venv/bin/python",
+  "python.defaultInterpreterPath": "./trading-agent/.venv/bin/python",
   "github.copilot.chat.commitMessageGeneration.instructions": [
     {
       "file": ".github/workflows/pr_lint.yml"

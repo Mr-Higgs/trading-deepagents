@@ -119,3 +119,118 @@ def test_insufficient_history_skips():
     res = _engine().evaluate(snap, NOW)
     assert res.signal is None
     assert res.reason == "insufficient_history"
+
+
+# ---- v1.1 trend-strength filter --------------------------------------------
+
+
+def test_weak_trend_skips():
+    # An absurdly high min distance rejects even the strong-trend happy path.
+    eng = IchimokuPullback(make_strategy(min_trend_distance_pips=1_000_000), make_pair())
+    res = eng.evaluate(_snapshot("LONG"), NOW)
+    assert res.signal is None
+    assert res.reason == "weak_trend"
+
+
+def test_trend_filter_allows_genuine_trend():
+    # The configured 8-pip floor still lets a real trend through (happy-path distance is far larger).
+    eng = IchimokuPullback(make_strategy(min_trend_distance_pips=8), make_pair())
+    res = eng.evaluate(_snapshot("LONG"), NOW)
+    assert res.signal is not None
+    assert res.signal.features["trend_distance"] >= 8 * make_pair().pip_size
+
+
+# ---- v1.2 confirmations (Tenkan/Kijun momentum) ----------------------------
+
+
+def _long_snapshot_h1_down() -> dict[str, pd.DataFrame]:
+    """LONG bias (H4 up) but H1 declining => Tenkan < Kijun, so momentum disagrees with LONG."""
+    h4 = _ramp("H4", 90, 0.6500, 0.0004)
+    h1 = _ramp("H1", 90, 0.6600, -0.0002)
+    tenkan, kijun = _kijun(h1)
+    last = h1.index[-1]
+    h1 = h1.copy()
+    h1.loc[last, "c"] = (tenkan + kijun) / 2  # still a valid pullback into the zone
+    m15 = _two_m15(kijun, direction="LONG", trigger=True)
+    return {"H4": h4, "H1": h1, "M15": m15}
+
+
+def test_momentum_gate_blocks_when_tk_disagree():
+    eng = IchimokuPullback(make_strategy(require_tk_momentum=True), make_pair())
+    res = eng.evaluate(_long_snapshot_h1_down(), NOW)
+    assert res.signal is None
+    assert res.reason == "no_momentum"
+
+
+def test_momentum_gate_allows_happy_path():
+    eng = IchimokuPullback(make_strategy(require_tk_momentum=True), make_pair())
+    res = eng.evaluate(_snapshot("LONG"), NOW)  # H1 uptrend => Tenkan > Kijun
+    assert res.signal is not None
+    assert res.reason == "trend_pullback_long"
+
+
+# ---- Setup #2 breakout (skip gates; entries proven by the backtest, not brittle synthetic clouds) ----
+
+
+def test_breakout_insufficient_history():
+    from trading_agent.strategy.ichimoku_breakout import IchimokuBreakout
+
+    entry = _ramp("M15", 40, 0.6700, 0.0001)  # < min_rows + 1
+    res = IchimokuBreakout(make_strategy(name="ichimoku_breakout"), make_pair()).evaluate({"M15": entry}, NOW)
+    assert res.signal is None
+    assert res.reason == "insufficient_history"
+
+
+def test_breakout_in_cloud_skips():
+    from trading_agent.strategy.ichimoku_breakout import IchimokuBreakout
+
+    entry = _ramp("M15", 120, 0.6700, 0.0)  # perfectly flat => price sits inside the (degenerate) cloud
+    res = IchimokuBreakout(make_strategy(name="ichimoku_breakout"), make_pair()).evaluate({"M15": entry}, NOW)
+    assert res.signal is None
+    assert res.reason == "in_cloud"
+
+
+def test_breakout_no_tk_cross_skips():
+    # Monotonic uptrend: price clears the cloud (direction resolves LONG) but Tenkan and Kijun run
+    # parallel and never cross, so the WFX TK-cross trigger never fires => no_tk_cross.
+    from trading_agent.strategy.ichimoku_breakout import IchimokuBreakout
+
+    entry = _ramp("M15", 120, 0.6700, 0.0002)
+    res = IchimokuBreakout(make_strategy(name="ichimoku_breakout"), make_pair()).evaluate({"M15": entry}, NOW)
+    assert res.signal is None
+    assert res.reason == "no_tk_cross"
+
+
+# ---- ichimoku_confluence (multi-TF gate; entries proven by the backtest, not brittle synthetic clouds) ----
+
+
+def _confluence(**overrides):
+    from trading_agent.strategy.ichimoku_confluence import IchimokuConfluence
+
+    return IchimokuConfluence(make_strategy(name="ichimoku_confluence", **overrides), make_pair())
+
+
+def test_confluence_insufficient_history():
+    # The existing happy-path snapshot only carries a 2-row M15 frame; the confluence needs full
+    # Ichimoku on every timeframe, so it stops at the entry TF.
+    res = _confluence().evaluate(_snapshot("LONG"), NOW)
+    assert res.signal is None
+    assert res.reason == "insufficient_history"
+
+
+def test_confluence_low_confluence_on_flat_market():
+    # Flat ramps => every price-vs-level vote is 0 => no directional bias => skip.
+    flat = {tf: _ramp(tf, 90, 0.6700, 0.0) for tf in ("H4", "H1", "M15")}
+    res = _confluence().evaluate(flat, NOW)
+    assert res.signal is None
+    assert res.reason == "low_confluence"
+
+
+def test_confluence_gate_passes_then_delegates_to_inner():
+    # All three TFs trend up => strong bullish confluence clears the gate; it then delegates to the
+    # inner pullback, which reaches its M15 candlestick gate and finds no reversal in a flat-bodied
+    # ramp => the inner's skip flows through (proving the gate passed and delegation happened).
+    up = {"H4": _ramp("H4", 90, 0.6500, 0.0004), "H1": _ramp("H1", 90, 0.6600, 0.0002), "M15": _ramp("M15", 90, 0.6700, 0.0001)}
+    res = _confluence().evaluate(up, NOW)
+    assert res.signal is None
+    assert res.reason == "no_trigger"  # not low_confluence/insufficient/h4_conflict => inner was called

@@ -7,7 +7,7 @@ rather than a giant hand-typed golden CSV.
 import numpy as np
 import pandas as pd
 
-from trading_agent.indicators import ichimoku
+from trading_agent.indicators import atr, ichimoku
 
 
 def _ramp(n: int) -> pd.DataFrame:
@@ -62,3 +62,11 @@ def test_chikou_is_backward_and_nan_at_edge():
     ich = ichimoku(_ramp(60))
     assert ich["chikou"].iloc[0] == 26  # close[0+26]
     assert pd.isna(ich["chikou"].iloc[-1])  # no future close => NaN at the decision edge
+
+
+def test_atr_constant_true_range_and_warmup():
+    # On the ramp every bar has TR = max(h-l=2, |h-prev_c|=2, |l-prev_c|=0) = 2, so RMA(TR) == 2.0.
+    a = atr(_ramp(120), length=14)
+    assert pd.isna(a.iloc[12])  # NaN before the length-bar warmup
+    assert a.iloc[13] == 2.0
+    assert a.iloc[-1] == 2.0

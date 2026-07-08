@@ -47,7 +47,9 @@ def make_strategy(**overrides) -> StrategyConfig:
     return StrategyConfig(**base)
 
 
-def make_signal(direction: str = "LONG", entry: float = 0.6700, stop: float = 0.6680) -> Signal:
+def make_signal(direction: str = "LONG", entry: float = 0.6700, stop: float = 0.6680, tp: float | None = None) -> Signal:
+    if tp is None:
+        tp = entry + 0.02 if direction == "LONG" else entry - 0.02
     return Signal(
         ts=datetime(2026, 7, 3, 8, tzinfo=UTC),
         signal_id="s1",
@@ -55,7 +57,7 @@ def make_signal(direction: str = "LONG", entry: float = 0.6700, stop: float = 0.
         direction=direction,
         entry_ref=entry,
         stop=stop,
-        tp=entry + 0.02 if direction == "LONG" else entry - 0.02,
+        tp=tp,
         rr=2.0,
         setup_id="ichimoku_pullback",
         strategy_version="v1.0.0",
@@ -64,8 +66,8 @@ def make_signal(direction: str = "LONG", entry: float = 0.6700, stop: float = 0.
     )
 
 
-def make_account(equity: float = 10_000.0) -> AccountState:
-    return AccountState(equity=equity, balance=equity, open_positions=0)
+def make_account(equity: float = 10_000.0, open_positions: int = 0) -> AccountState:
+    return AccountState(equity=equity, balance=equity, open_positions=open_positions)
 
 
 def make_day(**overrides) -> DayState:

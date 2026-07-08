@@ -1,7 +1,11 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "trade_gate": "./trading_agent/graph.py:agent"
+    "trade_gate": "./trading_agent/graph.py:agent",
+    "trade_loop": "./trading_agent/loop_graph.py:loop",
+    "account": "./trading_agent/account_graph.py:account",
+    "config": "./trading_agent/config_graph.py:config",
+    "candles": "./trading_agent/candles_graph.py:candles"
   },
   "env": ".env"
 }

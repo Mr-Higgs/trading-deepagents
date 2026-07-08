@@ -16,7 +16,7 @@ from trading_agent.eventlog import EventLog
 from trading_agent.execution.simulated import SimulatedBackend
 from trading_agent.marketdata.historical import HistoricalOandaSource
 from trading_agent.risk import RiskEngine
-from trading_agent.strategy.ichimoku_pullback import IchimokuPullback
+from trading_agent.strategy import build_strategy
 
 
 def _utc_day(s: str) -> datetime:
@@ -28,9 +28,13 @@ def _simulated_backend(cfg) -> SimulatedBackend:
     return SimulatedBackend(cfg.pair.pip_size, ex.sim_spread_pips, ex.sim_slippage_pips)
 
 
-def _make_backend(cfg):
-    """Choose the execution backend from config: local simulator (default) or OANDA paper account."""
-    backend = cfg.risk.execution.backend
+def _make_backend(cfg, override: str | None = None):
+    """Choose the execution backend: local simulator (default) or OANDA paper account.
+
+    `override` ("simulated"|"oanda") forces the choice regardless of `cfg.risk.execution.backend` — used
+    by the dashboard's `trade_loop` graph to pick real demo orders per run without flipping global config.
+    """
+    backend = override or cfg.risk.execution.backend
     if backend == "simulated":
         return _simulated_backend(cfg)
     if backend == "oanda":
@@ -60,7 +64,7 @@ def _load_env(path: Path = Path(".env")) -> None:
 
 def _live_strategy(cfg, choice: str):
     """Deterministic IchimokuPullback, or (agent) wrap it in the deepagents confirmation gate."""
-    inner = IchimokuPullback(cfg.strategy, cfg.pair)
+    inner = build_strategy(cfg.strategy, cfg.pair)
     mode = cfg.agents.mode if choice == "config" else choice
     if mode != "agent":
         return inner
@@ -73,7 +77,7 @@ def _live_strategy(cfg, choice: str):
 
 def cmd_backtest(args: argparse.Namespace) -> None:
     if args.strategy == "agent":
-        raise SystemExit("the agent strategy is live/forward only; backtest always uses the deterministic IchimokuPullback")
+        raise SystemExit("the agent strategy is live/forward only; backtest always uses the deterministic strategy")
     from trading_agent.marketdata.oanda_client import OandaClient  # lazy: keeps CLI parsing free of the network stack
 
     cfg = load_config(args.config)
@@ -82,7 +86,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     run_id = f"bt-{args.start}-{args.end}"
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
     log = EventLog(log_path, run_id=run_id, strategy_version=cfg.strategy_version)
-    equity = engine.run(source, IchimokuPullback(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair), _simulated_backend(cfg), log, cfg, starting_equity=args.equity)
+    equity = engine.run(source, build_strategy(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair), _simulated_backend(cfg), log, cfg, starting_equity=args.equity)
     log.close()
     print(f"backtest done: final equity {equity:.2f} | log {log_path}")
     print(f"render journal: uv run python -m trading_agent.journal {log_path}")

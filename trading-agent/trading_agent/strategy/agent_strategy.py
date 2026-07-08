@@ -15,13 +15,12 @@ import pandas as pd
 
 from trading_agent.config import PairConfig
 from trading_agent.strategy.agents.schemas import Verdict
-from trading_agent.strategy.base import StrategyResult
-from trading_agent.strategy.ichimoku_pullback import IchimokuPullback
+from trading_agent.strategy.base import Strategy, StrategyResult
 from trading_agent.types import Signal
 
 
 class AgentStrategy:
-    def __init__(self, inner: IchimokuPullback, orchestrator, pair: PairConfig | None) -> None:
+    def __init__(self, inner: Strategy, orchestrator, pair: PairConfig | None) -> None:
         self.inner = inner
         self.orchestrator = orchestrator
         self.pair = pair

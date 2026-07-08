@@ -16,5 +16,10 @@ def is_open(now: datetime, session: SessionConfig) -> bool:
     return session.start <= local.time() < session.end
 
 
+def any_open(now: datetime, sessions: Iterable[SessionConfig]) -> bool:
+    """Trade if the bar falls in ANY active session (each checked in its own local zone)."""
+    return any(is_open(now, s) for s in sessions)
+
+
 def in_news_window(now: datetime, windows: Iterable[NewsWindow]) -> bool:
     return any(w.start <= now < w.end for w in windows)

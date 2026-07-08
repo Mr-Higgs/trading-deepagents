@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import {
   type Message,
@@ -12,6 +12,7 @@ import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
 import type { TodoItem } from "@/app/types/types";
 import { useClient } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
+import { reduceEvents, type RunMeta, type TradingEvent } from "@/app/utils/reduceEvents";
 
 export type StateType = {
   messages: Message[];
@@ -37,6 +38,12 @@ export function useChat({
   const [threadId, setThreadId] = useQueryState("threadId");
   const client = useClient();
 
+  // Trading events arrive on the LangGraph `custom` stream (trade_loop graph), not in graph state —
+  // accumulate them client-side. SKIP is dropped: it's ~95% of the volume (insufficient_history /
+  // session_closed) and noise for the dashboard. ponytail: no skip rows in the feed; add a toggle if needed.
+  const [events, setEvents] = useState<TradingEvent[]>([]);
+  const [runMeta, setRunMeta] = useState<RunMeta | null>(null);
+
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
     client: client ?? undefined,
@@ -48,10 +55,40 @@ export function useChat({
     fetchStateHistory: true,
     // Revalidate thread list when stream finishes, errors, or creates new thread
     onFinish: onHistoryRevalidate,
-    onError: onHistoryRevalidate,
+    onError: (err: unknown) => {
+      // The dev thread store is ephemeral (cleared on server restart / expiry). A URL threadId that
+      // no longer exists 404s on load — drop it so the app resets to a fresh thread, not a crash.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/not found|404/i.test(msg)) setThreadId(null);
+      onHistoryRevalidate?.();
+    },
     onCreated: onHistoryRevalidate,
+    onCustomEvent: (event: unknown) => {
+      const e = event as TradingEvent;
+      if (!e || typeof e.type !== "string" || !("run_id" in (e as object))) return;
+      if (e.type === "RUN_META") {
+        setRunMeta(e as unknown as RunMeta); // run header (execution backend/account) — not a feed event
+        return;
+      }
+      if (e.type !== "SKIP") setEvents((prev) => [...prev, e]);
+    },
     experimental_thread: thread,
   });
+
+  const reduced = useMemo(() => reduceEvents(events), [events]);
+
+  // Kick off a trading run on the trade_loop graph, e.g. startRun({ mode: "backtest" }) or { mode: "live" }.
+  const startRun = useCallback(
+    (input: Record<string, unknown> = {}) => {
+      setEvents([]);
+      setRunMeta(null);
+      stream.submit(input as Partial<StateType>, {
+        config: { ...(activeAssistant?.config ?? {}), recursion_limit: 100 },
+      });
+      onHistoryRevalidate?.();
+    },
+    [stream, activeAssistant?.config, onHistoryRevalidate]
+  );
 
   const sendMessage = useCallback(
     (content: string) => {
@@ -163,5 +200,13 @@ export function useChat({
     stopStream,
     markCurrentThreadAsResolved,
     resumeInterrupt,
+    // trading dashboard
+    events,
+    runMeta,
+    startRun,
+    trades: reduced.trades,
+    equityCurve: reduced.equityCurve,
+    pnl: reduced.pnl,
+    openPositions: reduced.openPositions,
   };
 }

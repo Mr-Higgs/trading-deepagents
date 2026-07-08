@@ -76,6 +76,36 @@ def test_max_trades_reached_rejected():
     assert dec.reason == "max_trades_reached"
 
 
+# ---- v1.1 containment rules ------------------------------------------------
+
+
+def test_max_concurrent_positions_rejected():
+    eng = _engine(risk=make_risk(max_concurrent_positions=1))
+    dec = eng.evaluate(make_signal(), make_account(open_positions=1), make_day(), NOW)
+    assert not dec.approved
+    assert dec.reason == "max_concurrent"
+
+
+def test_max_concurrent_allows_when_flat():
+    eng = _engine(risk=make_risk(max_concurrent_positions=1))
+    dec = eng.evaluate(make_signal("LONG", 0.6700, 0.6680), make_account(open_positions=0), make_day(), NOW)
+    assert dec.approved
+
+
+def test_below_min_stop_rejected():
+    # min_stop_pips=8 => threshold 0.0008; a 5-pip stop (0.0005) is too tight.
+    eng = _engine(risk=make_risk(min_stop_pips=8))
+    dec = eng.evaluate(make_signal("LONG", 0.6700, 0.6695), make_account(), make_day(), NOW)
+    assert not dec.approved
+    assert dec.reason == "below_min_stop"
+
+
+def test_min_stop_allows_adequate_stop():
+    eng = _engine(risk=make_risk(min_stop_pips=8))
+    dec = eng.evaluate(make_signal("LONG", 0.6700, 0.6680), make_account(), make_day(), NOW)  # 20-pip stop
+    assert dec.approved
+
+
 def test_daily_loss_gate_without_halt_flag():
     # realized -301 vs threshold -300 (3% of 10000), halt flag not yet set => gate still fires.
     day = make_day(realized_pnl=-301.0)
@@ -86,6 +116,24 @@ def test_daily_loss_gate_without_halt_flag():
 def test_quote_account_ccy_mismatch_raises():
     with pytest.raises(ValueError, match="quote_ccy == account_ccy"):
         RiskEngine(make_risk(), make_pair(quote_ccy="JPY"))
+
+
+def test_tp_wrong_side_long_rejected():
+    sig = make_signal("LONG", 0.6700, 0.6680, tp=0.6690)  # tp below entry
+    dec = _engine().evaluate(sig, make_account(), make_day(), NOW)
+    assert dec.reason == "tp_wrong_side"
+
+
+def test_stop_wrong_side_short_rejected():
+    sig = make_signal("SHORT", 0.6700, 0.6680)  # stop below entry for short
+    dec = _engine().evaluate(sig, make_account(), make_day(), NOW)
+    assert dec.reason == "stop_wrong_side"
+
+
+def test_rr_below_floor_rejected():
+    sig = make_signal("LONG", 0.6700, 0.6680, tp=0.6705)  # 0.25R reward
+    dec = _engine(risk=make_risk(min_rr=1.0)).evaluate(sig, make_account(), make_day(), NOW)
+    assert dec.reason == "rr_below_floor"
 
 
 # ---- trading-day boundary (21:00 UTC rollover) -----------------------------

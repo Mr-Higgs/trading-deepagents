@@ -58,7 +58,7 @@ class EventLog:
             t = rec.get("type")
             if t == "SUBMIT":
                 state.trades_opened += 1
-            elif t == "EXIT" and rec.get("pnl") is not None:
+            elif t in {"EXIT", "PARTIAL_EXIT"} and rec.get("pnl") is not None:
                 state.realized_pnl += rec["pnl"]
             elif t == "HALT":
                 state.halted = True

@@ -1,9 +1,10 @@
-"""v1 setup: Ichimoku trend-pullback, fully deterministic.
+"""v1.2 setup: Ichimoku trend-pullback, fully deterministic.
 
 Rule chain (each failure returns a distinct skip reason):
   1. H4 trend gate  - price above cloud => LONG-only bias; below => SHORT-only; inside => skip.
   2. H1 pullback    - price pulled back into the Tenkan/Kijun zone (within a config band).
-  3. M15 trigger    - a reversal (engulfing) candle back in the trend direction.
+  3. Confirmations  - (v1.2, config-gated) Tenkan/Kijun momentum + Chikou vs price 26 bars ago.
+  4. M15 trigger    - a candlestick pattern (engulfing/pin bar/...) back in the trend direction.
 On a pass: stop beyond Kijun (or cloud) +/- buffer, take-profit at rr * stop_distance.
 """
 
@@ -15,19 +16,11 @@ import pandas as pd
 
 from trading_agent.config import PairConfig, StrategyConfig
 from trading_agent.indicators import ichimoku
+from trading_agent.strategy import patterns, signals
 from trading_agent.strategy.base import StrategyResult
 from trading_agent.types import Signal
 
 SETUP_ID = "ichimoku_pullback"
-
-
-def _bull_engulf(po: float, pc: float, co: float, cc: float) -> bool:
-    """Current candle is bullish and its body engulfs a prior bearish body."""
-    return cc > co and pc < po and cc >= po and co <= pc
-
-
-def _bear_engulf(po: float, pc: float, co: float, cc: float) -> bool:
-    return cc < co and pc > po and cc <= po and co >= pc
 
 
 class IchimokuPullback:
@@ -61,6 +54,12 @@ class IchimokuPullback:
         else:
             return StrategyResult(None, "h4_in_cloud")
 
+        # v1.1 trend-strength: price must clear the cloud edge by min_trend_distance_pips (skip thin-cloud chop).
+        cloud_edge = cloud_top if direction == "LONG" else cloud_bottom
+        trend_distance = abs(h4_close - cloud_edge)
+        if trend_distance < cfg.min_trend_distance_pips * self.pair.pip_size:
+            return StrategyResult(None, "weak_trend")
+
         # 2. H1 pullback into the Tenkan/Kijun zone
         bi = self._ichimoku_last(bias)
         if pd.isna(bi["tenkan"]) or pd.isna(bi["kijun"]):
@@ -72,13 +71,18 @@ class IchimokuPullback:
         if not (zone_lo - band <= h1_close <= zone_hi + band):
             return StrategyResult(None, "no_pullback")
 
-        # 3. M15 reversal trigger
+        # 3. v1.2 confirmations (config-gated; defaults off => v1.1 behavior)
+        if cfg.require_tk_momentum and not ((tenkan > kijun) if direction == "LONG" else (tenkan < kijun)):
+            return StrategyResult(None, "no_momentum")
+        if cfg.require_chikou and not signals.chikou_ok(entry, cfg.ichimoku.displacement, direction):
+            return StrategyResult(None, "no_chikou")
+
+        # 4. M15 candlestick trigger
         prev, curr = entry.iloc[-2], entry.iloc[-1]
-        po, pc, co, cc = float(prev["o"]), float(prev["c"]), float(curr["o"]), float(curr["c"])
-        if cfg.m15_trigger != "engulfing":
-            return StrategyResult(None, f"unknown_trigger:{cfg.m15_trigger}")
-        triggered = _bull_engulf(po, pc, co, cc) if direction == "LONG" else _bear_engulf(po, pc, co, cc)
-        if not triggered:
+        cc = float(curr["c"])
+        prev_ohlc = (float(prev["o"]), float(prev["h"]), float(prev["l"]), float(prev["c"]))
+        curr_ohlc = (float(curr["o"]), float(curr["h"]), float(curr["l"]), cc)
+        if not patterns.matches(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc):
             return StrategyResult(None, "no_trigger")
 
         # Build the proposal
@@ -112,7 +116,9 @@ class IchimokuPullback:
                 "h1_close": h1_close,
                 "h1_tenkan": tenkan,
                 "h1_kijun": kijun,
-                "m15_trigger": cfg.m15_trigger,
+                "h1_tenkan_gt_kijun": tenkan > kijun,
+                "m15_trigger": list(cfg.m15_trigger),
+                "trend_distance": trend_distance,
             },
             reason=reason,
         )

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from trading_agent.types import Candle, OrderRequest, TradeEvent
+from trading_agent.types import Candle, OpenTrade, OrderRequest, TradeEvent
 
 
 class ExecutionBackend(Protocol):
@@ -23,4 +23,24 @@ class ExecutionBackend(Protocol):
 
     def open_trades(self) -> list[str]:
         """Trade ids currently open."""
+        ...
+
+    def open_positions(self) -> list[OpenTrade]:
+        """Open positions with entry/stop/init_stop, for trade management."""
+        ...
+
+    def modify_stop(self, trade_id: str, new_stop: float) -> None:
+        """Move an open trade's stop-loss to `new_stop` (breakeven / trailing)."""
+        ...
+
+    def reduce_position(self, trade_id: str, units_to_close: int, price: float, now: datetime) -> TradeEvent | None:
+        """Close `units_to_close` magnitude of units at `price` now; keep the remainder open.
+
+        Returns a partial EXIT event, or None if the trade is missing / size is invalid.
+        """
+        ...
+
+    def request_close(self, trade_id: str) -> None:
+        """Close an open trade at market (WFX signal exit). Simulated: fills next bar open as an
+        EXIT/MANUAL; OANDA: issues a TradeClose, the EXIT lands via the transaction stream. Idempotent."""
         ...

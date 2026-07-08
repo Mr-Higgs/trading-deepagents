@@ -56,3 +56,16 @@ def ichimoku(
     out["cloud_top"] = out[["senkou_a", "senkou_b"]].max(axis=1)
     out["cloud_bottom"] = out[["senkou_a", "senkou_b"]].min(axis=1)
     return out
+
+
+def atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
+    """Average True Range via Wilder/RMA smoothing (matches TradingView `ta.atr`). Lookahead-safe.
+
+    TR = max(high-low, |high-prev_close|, |low-prev_close|); RMA = ewm(alpha=1/length, adjust=False).
+    ponytail: RMA is seeded from the first bar rather than an SMA(length) seed like Pine; the
+    difference decays geometrically and is negligible after the ~66-bar Ichimoku warmup we already gate on.
+    """
+    high, low, close = df["h"], df["l"], df["c"]
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0 / length, adjust=False, min_periods=length).mean()

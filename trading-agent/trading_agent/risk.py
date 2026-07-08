@@ -64,12 +64,29 @@ class RiskEngine:
             return self._reject(sig, day.halt_reason or "day_halted")
         if day.trades_opened >= r.max_trades_per_day:
             return self._reject(sig, "max_trades_reached")
+        if acct.open_positions >= r.max_concurrent_positions:  # v1.1: no correlated stacking of the same setup
+            return self._reject(sig, "max_concurrent")
         if day.realized_pnl <= -abs(r.max_daily_loss_pct) * acct.equity:
             return self._reject(sig, "daily_loss_breached")
 
         stop_distance = abs(sig.entry_ref - sig.stop)
         if stop_distance <= 0:
             return self._reject(sig, "stop_distance_invalid")
+        if stop_distance < r.min_stop_pips * self.pair.pip_size:  # v1.1: too-tight stop => oversized position + cost drag
+            return self._reject(sig, "below_min_stop")
+
+        reward = abs(sig.tp - sig.entry_ref)
+        if sig.direction == "LONG":
+            if not (sig.stop < sig.entry_ref < sig.tp):
+                if sig.stop >= sig.entry_ref:
+                    return self._reject(sig, "stop_wrong_side")
+                return self._reject(sig, "tp_wrong_side")
+        elif not (sig.tp < sig.entry_ref < sig.stop):
+            if sig.stop <= sig.entry_ref:
+                return self._reject(sig, "stop_wrong_side")
+            return self._reject(sig, "tp_wrong_side")
+        if reward < r.min_rr * stop_distance:
+            return self._reject(sig, "rr_below_floor")
 
         risk_amount = acct.equity * r.risk_pct
         # Epsilon before floor absorbs float noise (0.6700-0.6680 is not exactly 0.002, which would

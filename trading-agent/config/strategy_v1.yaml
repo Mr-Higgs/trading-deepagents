@@ -1,18 +1,32 @@
 # Versioned strategy config. Bump `version` on any rule change; every trade is tagged with it.
-version: "v1.0.0"
+version: "v2.0.0"            # WFX Refined Ichimoku: TK-cross entry + ATR stop + 2.55R
 instrument: AUD_USD
+name: ichimoku_breakout   # active strategy: "ichimoku_pullback" | "ichimoku_breakout" | "ichimoku_confluence"
 timeframes:
   trend: H4     # cloud direction = long/short bias
   bias: H1      # pullback context
   entry: M15    # trigger candle + decision clock
-ichimoku:
+ichimoku:                   # WFX-standard periods
   tenkan: 9
   kijun: 26
   senkou_b: 52
   displacement: 26
 setup:
-  h1_pullback_band: 0.0015   # max distance (price) from Tenkan/Kijun zone to count as a pullback
-  m15_trigger: engulfing     # reversal candle back in trend direction
-  stop_rule: kijun           # "kijun" | "cloud" — stop placed beyond this level
-  stop_buffer_pips: 3
-  rr: 2.0                     # take-profit = entry +/- rr * stop_distance
+  h1_pullback_band: 0.002   # (pullback strategy only) max distance from Tenkan/Kijun zone to count as a pullback
+  m15_trigger: [engulfing, pin_bar, hammer, shooting_star, doji]   # (pullback strategy only) reversal candle(s); any match fires
+  require_tk_momentum: true  # (pullback strategy only) Tenkan/Kijun must agree with the trade direction
+  require_chikou: true      # WFX has no Chikou filter; the TK-cross is the trigger (breakout strategy)
+  stop_rule: atr             # "kijun" | "cloud" | "atr" — WFX uses an ATR volatility stop
+  stop_buffer_pips: 9.0      # (used only when stop_rule != "atr")
+  rr: 3.0                   # take-profit = entry +/- rr * stop_distance (WFX 2.55R)
+  atr_length: 14             # WFX ATR lookback
+  atr_mult: 2.75             # WFX stop distance = ATR(14) * 2.75
+  exit_on_kijun_cross: false  # WFX early exit: close on a Kijun / Tenkan-Kijun cross against the position
+  min_trend_distance_pips: 5.0  # (pullback strategy only) H4 close must clear the cloud edge by this many pips
+  breakout_ref: cloud        # (unused by the WFX TK-cross entry; kept for the older breakout variant)
+  # --- ichimoku_confluence (only used when name: ichimoku_confluence) ---
+  confluence_min_score: 4.0        # min |weighted H4x3+H1x2+M15x1 price-vs-level vote| to allow a trade
+  confluence_signals: [kijun, span_a, span_b, cloud]  # price-vs-level votes to count (of kijun/tenkan/span_a/span_b/cloud)
+  entry_trigger: pullback          # which inner strategy triggers: "pullback" | "breakout" (backtest winner: breakout)
+  tp_mode: ichimoku_level          # "ichimoku_level" (next Ichimoku level, top-down) | "rr" (inner's R:R TP)
+  require_thinning_cloud: false    # reserved: favor breakouts when the M15 cloud is diminishing

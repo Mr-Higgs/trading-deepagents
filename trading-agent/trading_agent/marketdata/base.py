@@ -44,8 +44,18 @@ def candles_to_frame(candles: list[Candle]) -> pd.DataFrame:
 
 
 def closed_only(df: pd.DataFrame, now: datetime) -> pd.DataFrame:
-    """Rows whose candle had closed by `now`. The lookahead firewall."""
-    return df[df["close_time"] <= now]
+    """Rows whose candle had closed by `now`. The lookahead firewall.
+
+    `normalize_frame` sorts frames ascending by `close_time`, so the cutoff is found with a
+    binary search (O(log n)) rather than a full boolean scan (O(n)). This matters because the
+    engine calls this once per bar; a linear scan makes a long backtest O(n^2) and appears to
+    hang. Falls back to the boolean mask if the column is not monotonic.
+    """
+    ct = df["close_time"]
+    if ct.is_monotonic_increasing:
+        idx = ct.searchsorted(pd.Timestamp(now), side="right")
+        return df.iloc[:idx]
+    return df[ct <= now]
 
 
 def last_closed(df: pd.DataFrame, now: datetime) -> pd.Series | None:

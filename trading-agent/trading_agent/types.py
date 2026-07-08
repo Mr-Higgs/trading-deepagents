@@ -70,7 +70,24 @@ class TradeEvent:
     price: float
     units: int
     pnl: float | None = None  # set on EXIT
-    exit_reason: str | None = None  # "STOP" | "TP" | "MANUAL" (set on EXIT)
+    exit_reason: str | None = None  # "STOP" | "TP" | "MANUAL" | "SCALE_OUT" (set on EXIT)
+    partial: bool = False  # True when a scale-out leg banks part of the position
+    remaining_units: int | None = None  # signed units still open after a partial exit
+
+
+@dataclass(frozen=True, slots=True)
+class OpenTrade:
+    """A currently-open position, exposed by a backend for trade management (stop moves)."""
+
+    trade_id: str
+    instrument: str
+    units: int  # SIGNED original size at fill; used for R and scale-out fraction math
+    entry: float
+    stop: float  # current stop (may already be moved)
+    init_stop: float  # original stop at submit; risk = |entry - init_stop| survives stop moves
+    tp: float
+    remaining_units: int = 0  # SIGNED current live size (defaults to units when unset at construction)
+    legs_filled: int = 0  # scale-out legs already banked
 
 
 @dataclass

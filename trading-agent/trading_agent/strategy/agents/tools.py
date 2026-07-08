@@ -41,7 +41,7 @@ def summarize_calendar(events: list[dict]) -> str:
     Each event: {title, country (=currency), impact 'High'|'Medium'|'Low', date, forecast, previous}.
     """
     if not events:
-        return "No scheduled high/medium-impact economic events in the window."
+        return "No scheduled high-impact economic events in the window."
 
     def rank(e: dict) -> int:
         return _IMPACT_RANK.get(str(e.get("impact", "")).lower(), 0)
@@ -77,7 +77,7 @@ def cftc_cot(cftc_code: str = "232741") -> str:
 
 @tool(parse_docstring=True)
 def economic_calendar(instrument: str = "AUD_USD", hours_ahead: int = 48) -> str:
-    """Upcoming medium/high-impact economic events for an instrument's currencies (Forex Factory).
+    """Upcoming high-impact economic events for an instrument's currencies (Forex Factory).
 
     Args:
         instrument: instrument symbol, e.g. AUD_USD (events for BOTH legs are included).
@@ -91,7 +91,7 @@ def economic_calendar(instrument: str = "AUD_USD", hours_ahead: int = 48) -> str
         horizon = now + timedelta(hours=hours_ahead)
         upcoming = []
         for e in resp.json():
-            if e.get("country") not in currencies or str(e.get("impact", "")).lower() not in ("high", "medium"):
+            if e.get("country") not in currencies or str(e.get("impact", "")).lower() != "high":
                 continue
             try:
                 when = datetime.fromisoformat(e["date"]).astimezone(timezone.utc)

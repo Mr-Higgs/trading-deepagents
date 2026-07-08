@@ -86,3 +86,13 @@ def test_short_take_profit_sign():
     assert events[-1].exit_reason == "TP"
     assert events[-1].price == pytest.approx(0.6680)
     assert events[-1].pnl == pytest.approx(-1000 * (0.6680 - 0.6699))  # short profits as price falls
+
+
+def test_reduce_position_partial_long():
+    b = _backend()
+    b.submit(_order(1000, 0.6680, 0.6740))
+    b.reconcile(T0, _bar(0.6700, 0.6705, 0.6698, 0.6702))
+    ev = b.reduce_position("t1", 400, 0.6720, T0 + STEP)
+    assert ev is not None and ev.partial and ev.remaining_units == 600
+    assert ev.pnl == pytest.approx(400 * (0.6720 - 0.6701))
+    assert b.open_trades() == ["t1"]

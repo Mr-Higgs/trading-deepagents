@@ -16,7 +16,7 @@ from oandapyV20.endpoints.instruments import InstrumentsCandles
 from trading_agent.marketdata.base import FRAME_COLUMNS, normalize_frame
 from trading_agent.oanda_env import practice_environment
 
-_GRAN_DELTA = {"M15": timedelta(minutes=15), "H1": timedelta(hours=1), "H4": timedelta(hours=4)}
+_GRAN_DELTA = {"M15": timedelta(minutes=15), "H1": timedelta(hours=1), "H4": timedelta(hours=4), "D": timedelta(days=1)}
 _PRICE_KEY = {"M": "mid", "B": "bid", "A": "ask"}
 _MAX_COUNT = 5000  # OANDA per-request candle cap
 
@@ -56,14 +56,16 @@ class OandaClient:
         rows: list[tuple] = []
         frm = start
         while frm < end:
-            params = {"granularity": granularity, "from": _iso_z(frm), "to": _iso_z(end), "price": price, "count": _MAX_COUNT}
+            # `from`+`count` paging: OANDA rejects `count` alongside `to`, and a `from`+`to` range wider than
+            # _MAX_COUNT errors ("Maximum value for 'count' exceeded"). So page by count and clip to `end` locally.
+            params = {"granularity": granularity, "from": _iso_z(frm), "count": _MAX_COUNT, "price": price}
             batch = self._api.request(InstrumentsCandles(instrument=instrument, params=params)).get("candles", [])
             if not batch:
                 break
-            rows.extend(_batch_to_rows(batch, instrument, granularity, delta, pk))
-            # advance past the last returned bar; stop if no forward progress
-            nxt = _parse_time(batch[-1]["time"]) + delta
-            if nxt <= frm:
+            rows.extend(r for r in _batch_to_rows(batch, instrument, granularity, delta, pk) if r[2] < end)  # r[2] = open_time
+            last_time = _parse_time(batch[-1]["time"])
+            nxt = last_time + delta
+            if nxt <= frm or last_time >= end:  # no forward progress, or covered the range
                 break
             frm = nxt
         return normalize_frame(pd.DataFrame(rows, columns=FRAME_COLUMNS))
