@@ -16,6 +16,7 @@ from langgraph.graph import END, START, StateGraph
 
 from trading_agent.config import load_config
 from trading_agent.strategy.patterns import TRIGGER_NAMES
+from trading_agent.strategy.price_action import PA_SIGNALS
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_DIR = _ROOT / "config"
@@ -63,6 +64,11 @@ _STRAT_RULES: dict[str, Any] = {
     "m15_trigger": ("patterns", _PATTERN_NAMES),
     "require_tk_momentum": ("bool",),
     "require_chikou": ("bool",),
+    "require_candle_trigger": ("bool",),
+    "require_price_action": ("bool",),
+    "price_action_signals": ("patterns", set(PA_SIGNALS)),
+    "swing_lookback": ("int", 1, 10),
+    "sr_tolerance_pips": ("num", 0.0, 100.0),
     "breakout_ref": ("choice", {"cloud", "base"}),
     "tenkan": ("int", 1, 200),
     "kijun": ("int", 1, 200),
@@ -117,6 +123,11 @@ def _current() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         "m15_trigger": list(s.m15_trigger),
         "require_tk_momentum": s.require_tk_momentum,
         "require_chikou": s.require_chikou,
+        "require_candle_trigger": s.require_candle_trigger,
+        "require_price_action": s.require_price_action,
+        "price_action_signals": list(s.price_action_signals),
+        "swing_lookback": s.swing_lookback,
+        "sr_tolerance_pips": s.sr_tolerance_pips,
         "breakout_ref": s.breakout_ref,
         "rr": s.rr,
         "stop_rule": s.stop_rule,

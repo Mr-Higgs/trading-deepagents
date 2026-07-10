@@ -2,7 +2,7 @@
 version: "v2.0.0"            # WFX Refined Ichimoku: TK-cross entry + ATR stop + 2.55R
 instrument: AUD_USD
 name: ichimoku_pullback   # active strategy: "ichimoku_pullback" | "ichimoku_breakout" | "ichimoku_confluence"
-style: intraday   # trading style -> triple-screen stack: scalping M15/M5/M1 | intraday H1/M15/M5 | swing H4/H1/M15 | position D/H4/H1
+style: scalping   # trading style -> triple-screen stack: scalping M15/M5/M1 | intraday H1/M15/M5 | swing H4/H1/M15 | position D/H4/H1
 timeframes:    # fallback only: used when `style` is omitted. `style` (above) wins when present.
   trend: H4     # cloud direction = long/short bias
   bias: H1      # pullback context
@@ -17,6 +17,12 @@ setup:
   m15_trigger: [engulfing, pin_bar, hammer, shooting_star, doji]   # (pullback strategy only) reversal candle(s); any match fires
   require_tk_momentum: true  # (pullback strategy only) Tenkan/Kijun must agree with the trade direction
   require_chikou: false      # WFX has no Chikou filter; the TK-cross is the trigger (breakout strategy)
+  # --- price-action confirmation gate (deterministic; strategy/price_action.py) ---
+  require_candle_trigger: false   # (breakout only) also require an m15_trigger candlestick; pullback already does
+  require_price_action: true     # (pullback + breakout) require the price_action_signals confirmation below
+  price_action_signals: [bos]     # ALL must fire: bos (break of structure) | sr_confluence (entry AT an S/R level, suits pullbacks)
+  swing_lookback: 2               # fractal half-window; a swing needs this many bars on each side to confirm
+  sr_tolerance_pips: 5.0          # S/R cluster width + confluence proximity, in pips
   stop_rule: atr             # "kijun" | "cloud" | "atr" — WFX uses an ATR volatility stop
   stop_buffer_pips: 10.0      # (used only when stop_rule != "atr")
   rr: 2.3                   # take-profit = entry +/- rr * stop_distance (WFX 2.55R)

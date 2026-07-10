@@ -58,7 +58,8 @@ class AgentStrategy:
         signal = self._annotate_dislocation(res.signal, snapshot)  # AQR Opportunistic-Macro context
         verdict = self._gate(signal)
         if verdict is None:
-            return StrategyResult(None, "llm_error:gate_unavailable")  # ponytail: fail closed = no trade
+            # ponytail: fail closed = no trade. candidate carries the code-computed geometry so the engine can log it.
+            return StrategyResult(None, "llm_error:gate_unavailable", candidate=signal)
         decision = verdict.decision.strip().lower()
 
         if decision == "approve":
@@ -66,10 +67,10 @@ class AgentStrategy:
         if self.authority == "signal" and decision == "modify":
             sig = self._build_modified(signal, verdict)
             if sig is None:
-                return StrategyResult(None, f"llm_invalid_signal:{verdict.confidence:.2f}:{verdict.rationale[:100]}")
+                return StrategyResult(None, f"llm_invalid_signal:{verdict.confidence:.2f}:{verdict.rationale[:100]}", candidate=signal)
             return StrategyResult(sig, res.reason)
         # veto, or any non-approve decision in gate mode (incl. a stray "modify") -> no trade
-        return StrategyResult(None, f"llm_veto:{verdict.confidence:.2f}:{verdict.rationale[:120]}")
+        return StrategyResult(None, f"llm_veto:{verdict.confidence:.2f}:{verdict.rationale[:120]}", candidate=self._with_verdict(signal, verdict))
 
     def _annotate_dislocation(self, signal: Signal, snapshot: dict[str, pd.DataFrame]) -> Signal:
         """Attach a code-computed price-dislocation z-score (AQR Opportunistic-Macro proxy) into features

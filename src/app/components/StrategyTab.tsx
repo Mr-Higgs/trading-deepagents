@@ -18,15 +18,14 @@ const ICHIMOKU = [
   { id: "ichimoku_confluence", name: "Confluence", desc: "Top-down weighted multi-timeframe vote → pullback/breakout trigger" },
 ];
 // techniques from docs/trading-system/ with no engine strategy behind them yet
-const PLANNED = [
-  { id: "support_resistance", name: "Support & Resistance", desc: "Key levels, breaks & retests" },
-  { id: "price_action", name: "Price Action", desc: "Bare-chart structure" },
-];
+const PLANNED: { id: string; name: string; desc: string }[] = [];
 const PATTERNS = ["engulfing", "pin_bar", "hammer", "shooting_star", "doji"];
+// price-action confirmation signals (mirrors strategy/price_action.PA_SIGNALS)
+const PA_SIGNALS = ["bos", "sr_confluence"];
 
 type Form = Pick<
   StrategyConfig,
-  "version" | "name" | "style" | "rr" | "stop_rule" | "stop_buffer_pips" | "h1_pullback_band" | "min_trend_distance_pips" | "tenkan" | "kijun" | "senkou_b" | "displacement" | "m15_trigger" | "require_tk_momentum" | "require_chikou" | "breakout_ref"
+  "version" | "name" | "style" | "rr" | "stop_rule" | "stop_buffer_pips" | "h1_pullback_band" | "min_trend_distance_pips" | "tenkan" | "kijun" | "senkou_b" | "displacement" | "m15_trigger" | "require_tk_momentum" | "require_chikou" | "breakout_ref" | "require_candle_trigger" | "require_price_action" | "price_action_signals" | "swing_lookback" | "sr_tolerance_pips"
 >;
 
 // trading styles → triple-screen stack (mirrors config.py STYLES; shown as a hint next to the picker)
@@ -55,6 +54,11 @@ function toForm(s: StrategyConfig): Form {
     require_tk_momentum: s.require_tk_momentum,
     require_chikou: s.require_chikou,
     breakout_ref: s.breakout_ref,
+    require_candle_trigger: s.require_candle_trigger ?? false,
+    require_price_action: s.require_price_action ?? false,
+    price_action_signals: s.price_action_signals ?? ["bos"],
+    swing_lookback: s.swing_lookback ?? 2,
+    sr_tolerance_pips: s.sr_tolerance_pips ?? 5,
   };
 }
 
@@ -93,6 +97,14 @@ export function StrategyTab() {
       const has = f.m15_trigger.includes(p);
       const next = has ? f.m15_trigger.filter((x) => x !== p) : [...f.m15_trigger, p];
       return { ...f, m15_trigger: next.length ? next : f.m15_trigger }; // keep at least one
+    });
+
+  const togglePASignal = (p: string) =>
+    setForm((f) => {
+      if (!f) return f;
+      const has = f.price_action_signals.includes(p);
+      const next = has ? f.price_action_signals.filter((x) => x !== p) : [...f.price_action_signals, p];
+      return { ...f, price_action_signals: next.length ? next : f.price_action_signals }; // keep at least one
     });
 
   const chooseMode = (m: GateMode) => patchPrefs({ gateMode: m });
@@ -248,7 +260,7 @@ export function StrategyTab() {
 
             {/* candlestick trigger patterns */}
             <div>
-              <Label className="text-xs">{isBreakout ? "Candlestick patterns (unused by breakout)" : "M15 trigger patterns"}</Label>
+              <Label className="text-xs">{isBreakout ? "Candlestick patterns (breakout: on only with “Require candle trigger”)" : "M15 trigger patterns"}</Label>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {PATTERNS.map((p) => {
                   const on = form.m15_trigger.includes(p);
@@ -276,6 +288,46 @@ export function StrategyTab() {
                   <p className="text-[11px] text-muted-foreground">Close vs price 26 bars ago</p>
                 </div>
                 <Switch id="ch" checked={form.require_chikou} onCheckedChange={(v) => set("require_chikou", v)} />
+              </div>
+            </div>
+
+            {/* price-action confirmation gate (deterministic; strategy/price_action.py) */}
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <Label className="text-xs font-semibold">Price action</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {isBreakout && (
+                  <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <div>
+                      <Label htmlFor="pa-candle" className="text-xs">Require candle trigger</Label>
+                      <p className="text-[11px] text-muted-foreground">Breakout must also print an M15 pattern</p>
+                    </div>
+                    <Switch id="pa-candle" checked={form.require_candle_trigger} onCheckedChange={(v) => set("require_candle_trigger", v)} />
+                  </div>
+                )}
+                <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                  <div>
+                    <Label htmlFor="pa-req" className="text-xs">Require price action</Label>
+                    <p className="text-[11px] text-muted-foreground">Structure must confirm the entry</p>
+                  </div>
+                  <Switch id="pa-req" checked={form.require_price_action} onCheckedChange={(v) => set("require_price_action", v)} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Confirmation signals (all must fire)</Label>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {PA_SIGNALS.map((p) => {
+                    const on = form.price_action_signals.includes(p);
+                    return (
+                      <button key={p} onClick={() => togglePASignal(p)} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${on ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+                        {p === "bos" ? "Break of structure" : "S/R confluence"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Num id="swing_lookback" label="Swing lookback (bars)" value={form.swing_lookback} onChange={num("swing_lookback")} step="1" />
+                <Num id="sr_tolerance_pips" label="S/R tolerance (pips)" value={form.sr_tolerance_pips} onChange={num("sr_tolerance_pips")} step="0.5" />
               </div>
             </div>
 
@@ -326,22 +378,24 @@ export function StrategyTab() {
       </div>
 
       {/* techniques not yet wired */}
-      <div>
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <Layers className="h-3.5 w-3.5" /> Top-Down / Triple Screen (H4/H1/M15) &amp; Confluence are active · other techniques (planned)
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {PLANNED.map((t) => (
-            <div key={t.id} className="rounded-lg border border-border bg-card p-3 opacity-70">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground">{t.name}</span>
-                <Lock className="h-3 w-3 text-muted-foreground" />
+      {PLANNED.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <Layers className="h-3.5 w-3.5" /> Top-Down / Triple Screen (H4/H1/M15) &amp; Confluence are active · other techniques (planned)
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {PLANNED.map((t) => (
+              <div key={t.id} className="rounded-lg border border-border bg-card p-3 opacity-70">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-foreground">{t.name}</span>
+                  <Lock className="h-3 w-3 text-muted-foreground" />
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{t.desc}</p>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">{t.desc}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

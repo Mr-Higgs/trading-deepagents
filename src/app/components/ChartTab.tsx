@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { RefreshCw, AlertTriangle, Square, Grid2x2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useChatContext } from "@/providers/ChatProvider";
@@ -14,6 +14,19 @@ import { ChartToolbar } from "@/app/components/ChartToolbar";
 import { MultiChart } from "@/app/components/MultiChart";
 import { SignalsPanel } from "@/app/components/SignalsPanel";
 import type { Tool } from "@/app/components/drawings";
+
+function Toggle({ on, onClick, title, children }: { on: boolean; onClick: () => void; title: string; children: ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={on}
+      title={title}
+      className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function ChartTab() {
   const { data, loading, error, refresh, timeframe, setTimeframe } = useCandles();
@@ -36,6 +49,9 @@ export function ChartTab() {
   );
   const [tool, setTool] = useState<Tool>("cross");
   const [showIchimoku, setShowIchimoku] = useState(true);
+  const [showOpen, setShowOpen] = useState(true);
+  const [showClosed, setShowClosed] = useState(true);
+  const [showSignals, setShowSignals] = useState(true);
   const [drawings, setDrawings] = useDrawings(data?.instrument, timeframe);
 
   // event-stream trades + real OANDA open positions + closed OANDA positions (all deduped by trade id),
@@ -79,14 +95,18 @@ export function ChartTab() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowIchimoku((v) => !v)}
-            aria-pressed={showIchimoku}
-            title="Toggle Ichimoku overlay"
-            className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${showIchimoku ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
-          >
+          <Toggle on={showIchimoku} onClick={() => setShowIchimoku((v) => !v)} title="Toggle Ichimoku overlay">
             Ichimoku
-          </button>
+          </Toggle>
+          <Toggle on={showOpen} onClick={() => setShowOpen((v) => !v)} title="Show open positions (entry/SL/TP lines, R:R zones)">
+            Open
+          </Toggle>
+          <Toggle on={showClosed} onClick={() => setShowClosed((v) => !v)} title="Show closed trades (entry/exit markers)">
+            Closed
+          </Toggle>
+          <Toggle on={showSignals} onClick={() => setShowSignals((v) => !v)} title="Show signals (pending / rejected / vetoed)">
+            Signals
+          </Toggle>
           {!grid && (
             <div className="inline-flex rounded-md border border-border p-0.5">
               {TIMEFRAMES.map((tf) => (
@@ -132,7 +152,7 @@ export function ChartTab() {
 
       {grid ? (
         <div className="flex min-h-0 flex-1 p-3">
-          <MultiChart trades={chartTrades} showIchimoku={showIchimoku} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
+          <MultiChart trades={chartTrades} showIchimoku={showIchimoku} showOpen={showOpen} showClosed={showClosed} showSignals={showSignals} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
         </div>
       ) : (
         // ponytail: drawing tools only in single mode (grid has 4 charts) — an acceptable ceiling.
@@ -149,6 +169,9 @@ export function ChartTab() {
                 onDrawingsChange={setDrawings}
                 pipSize={pipSize}
                 showIchimoku={showIchimoku}
+                showOpen={showOpen}
+                showClosed={showClosed}
+                showSignals={showSignals}
                 onModifyPosition={onModifyPosition}
                 onClosePosition={onClosePosition}
               />

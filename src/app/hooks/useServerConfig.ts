@@ -32,6 +32,11 @@ export type StrategyConfig = {
   m15_trigger: string[]; // candlestick trigger pattern(s)
   require_tk_momentum: boolean;
   require_chikou: boolean;
+  require_candle_trigger: boolean; // breakout: also require an m15_trigger candlestick
+  require_price_action: boolean; // require the price_action_signals confirmation
+  price_action_signals: string[]; // "bos" | "sr_confluence" (all must fire)
+  swing_lookback: number; // fractal half-window
+  sr_tolerance_pips: number; // S/R cluster + confluence tolerance in pips
   breakout_ref: string; // "cloud" | "base"
   rr: number;
   stop_rule: string; // "kijun" | "cloud"

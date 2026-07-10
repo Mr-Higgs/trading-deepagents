@@ -30,6 +30,7 @@ export type TradingEvent = {
   strategy_version: string;
   type: string;
   reason?: string;
+  veto_reason?: string; // VETO event: the llm_veto:… reason (kept separate from `reason` to avoid a key collision)
   signal_id?: string;
   instrument?: string;
   direction?: "LONG" | "SHORT";
@@ -45,12 +46,13 @@ export type TradingEvent = {
   risk_amount?: number;
   price?: number;
   pnl?: number;
+  remaining_units?: number; // PARTIAL_EXIT: signed units still open after a scale-out
   exit_reason?: string;
   starting_equity?: number;
   final_equity?: number;
 };
 
-export type TradeStatus = "signal" | "rejected" | "submitted" | "open" | "closed";
+export type TradeStatus = "signal" | "rejected" | "vetoed" | "submitted" | "open" | "closed";
 
 export type Trade = {
   signal_id: string;
@@ -62,8 +64,11 @@ export type Trade = {
   tp?: number;
   rr?: number;
   verdict?: Verdict;
+  candle_trigger?: string; // concrete candlestick pattern that fired (e.g. "bull_engulf"), for the marker label
+  price_action?: string[] | null; // price-action signals that fired ("bos", "sr_confluence")
   status: TradeStatus;
   reject_reason?: string;
+  veto_reason?: string; // llm_veto:… reason when status === "vetoed"
   trade_id?: string;
   units?: number;
   risk_amount?: number;
@@ -97,6 +102,7 @@ export type PnlSummary = {
   haltReason?: string;
   signals: number;
   rejected: number;
+  vetoed: number;
 };
 
 export type Reduced = {
@@ -122,6 +128,7 @@ export function reduceEvents(events: TradingEvent[]): Reduced {
   let realizedPnl = 0;
   let signals = 0;
   let rejected = 0;
+  let vetoed = 0;
   let lastDay = ""; // trading-day of the most recent event
   const equityCurve: EquityPoint[] = [];
   const exitDayPnl = new Map<string, number>(); // trading-day -> realized pnl
@@ -147,7 +154,33 @@ export function reduceEvents(events: TradingEvent[]): Reduced {
           tp: e.tp,
           rr: e.rr,
           verdict: e.features?.llm_verdict,
+          candle_trigger: e.features?.candle_trigger as string | undefined,
+          price_action: e.features?.price_action as string[] | null | undefined,
           status: "signal",
+        };
+        bySignal.set(e.signal_id, t);
+        order.push(t);
+        break;
+      }
+      case "VETO": {
+        // The LLM gate vetoed a code-computed signal. It never becomes a fill, but it carries full
+        // geometry (entry/stop/tp) so the chart can draw it. veto_reason avoids the asdict `reason` key.
+        if (!e.signal_id) break;
+        vetoed += 1;
+        const t: Trade = {
+          signal_id: e.signal_id,
+          signal_ts: e.ts,
+          instrument: e.instrument,
+          direction: e.direction,
+          entry_ref: e.entry_ref,
+          stop: e.stop,
+          tp: e.tp,
+          rr: e.rr,
+          verdict: e.features?.llm_verdict,
+          candle_trigger: e.features?.candle_trigger as string | undefined,
+          price_action: e.features?.price_action as string[] | null | undefined,
+          veto_reason: e.veto_reason,
+          status: "vetoed",
         };
         bySignal.set(e.signal_id, t);
         order.push(t);
@@ -259,6 +292,7 @@ export function reduceEvents(events: TradingEvent[]): Reduced {
     haltReason: haltDays.get(lastDay),
     signals,
     rejected,
+    vetoed,
   };
 
   return { trades: order, equityCurve, pnl, openPositions };
@@ -302,6 +336,23 @@ if (_proc?.argv?.[1]?.includes("reduceEvents")) {
   ok(pr.trades[0].status === "closed", "closed after final exit");
   ok(Math.abs((pr.trades[0].pnl ?? 0) - 295) < 1e-6, "banked + final pnl");
   ok(pr.pnl.realizedPnl === 295, "realized pnl sums partials");
+
+  // signal outcomes that never become fills: rejected (risk gate) and vetoed (LLM gate) keep geometry.
+  const outcomeFixture: TradingEvent[] = [
+    { ts: "2026-07-02T08:00:00+00:00", seq: 0, run_id: "t", strategy_version: "v1", type: "SIGNAL", signal_id: "R1", instrument: "AUD_USD", direction: "LONG", entry_ref: 0.67, stop: 0.668, tp: 0.674, rr: 2.0, features: { candle_trigger: "bull_engulf", price_action: ["bos"] } },
+    { ts: "2026-07-02T08:00:00+00:00", seq: 1, run_id: "t", strategy_version: "v1", type: "REJECT", signal_id: "R1", reason: "min_rr" },
+    { ts: "2026-07-02T08:15:00+00:00", seq: 2, run_id: "t", strategy_version: "v1", type: "VETO", signal_id: "V1", instrument: "AUD_USD", direction: "SHORT", entry_ref: 0.689, stop: 0.691, tp: 0.685, rr: 2.0, veto_reason: "llm_veto:0.80:news risk", features: { candle_trigger: "shooting_star", price_action: null } },
+  ];
+  const outc = reduceEvents(outcomeFixture);
+  ok(outc.trades.length === 2, "signal + veto both kept");
+  const rej = outc.trades.find((t) => t.signal_id === "R1");
+  ok(rej?.status === "rejected" && rej.reject_reason === "min_rr", "rejected status + reason");
+  ok(rej?.candle_trigger === "bull_engulf" && rej?.price_action?.[0] === "bos", "signal carries pattern labels");
+  const vet = outc.trades.find((t) => t.signal_id === "V1");
+  ok(vet?.status === "vetoed" && (vet.veto_reason ?? "").includes("news risk"), "vetoed status + reason");
+  ok(vet?.entry_ref === 0.689 && vet?.candle_trigger === "shooting_star", "veto keeps geometry + label");
+  ok(outc.pnl.rejected === 1 && outc.pnl.vetoed === 1, "reject/veto counts");
+  ok(outc.openPositions.length === 0, "no fills => no open positions");
 
   // eslint-disable-next-line no-console
   console.log("reduceEvents self-check OK", JSON.stringify(r.pnl));

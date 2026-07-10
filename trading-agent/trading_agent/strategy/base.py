@@ -20,6 +20,7 @@ from trading_agent.types import Signal
 class StrategyResult:
     signal: Signal | None
     reason: str  # setup name when a signal fires, else the skip reason
+    candidate: Signal | None = None  # a code-computed signal the LLM gate then vetoed (so the engine can log its geometry)
 
 
 class Strategy(Protocol):

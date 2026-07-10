@@ -113,6 +113,13 @@ def run(
         # 3. strategy proposal
         res = strategy.evaluate(snapshot, now)
         if res.signal is None:
+            if res.candidate is not None:
+                # LLM gate vetoed a code-computed signal: log its geometry (as VETO) so the chart can draw it.
+                # `veto_reason` (not `reason`) avoids colliding with the `reason` key inside asdict(candidate).
+                payload = asdict(res.candidate)
+                payload.pop("ts", None)
+                log.write("VETO", ts=now, veto_reason=res.reason, **payload)
+                continue
             log.write("SKIP", ts=now, reason=res.reason)
             continue
         sig = res.signal

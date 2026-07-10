@@ -71,6 +71,10 @@ def test_veto_blocks_and_records_reason():
     assert out.signal is None
     assert out.reason.startswith("llm_veto:")
     assert "RBA rate decision" in out.reason
+    # the vetoed candidate is carried so the engine can emit a VETO event with its geometry
+    assert out.candidate is not None
+    assert out.candidate.entry_ref == 0.67000
+    assert out.candidate.features.get("llm_verdict", {}).get("decision") == "veto"
 
 
 def test_llm_failure_fails_closed():

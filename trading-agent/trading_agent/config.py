@@ -158,6 +158,12 @@ class StrategyConfig:
     # ichimoku_cloud_breakout (only used when name == "ichimoku_cloud_breakout"; no-op defaults otherwise):
     breakout_lookback: int = 10  # bars to scan back for a cloud break before the retest
     retest_band_pips: float = 8.0  # how close price must pull back to the broken cloud edge to count as a retest
+    # price-action confirmation gate (defaults are no-ops; see strategy/price_action.py):
+    require_candle_trigger: bool = False  # ichimoku_breakout only: also require an m15_trigger candlestick (pullback already does)
+    require_price_action: bool = False  # require the price_action_signals confirmation (pullback + breakout)
+    price_action_signals: tuple[str, ...] = ("bos",)  # ALL must fire: subset of price_action.PA_SIGNALS ("bos", "sr_confluence")
+    swing_lookback: int = 2  # fractal half-window for swing highs/lows
+    sr_tolerance_pips: float = 5.0  # S/R cluster + confluence tolerance in pips (-> price via pair.pip_size)
 
 
 @dataclass(frozen=True)
@@ -335,6 +341,11 @@ def load_config(config_dir: str | Path) -> AppConfig:
         require_thinning_cloud=bool(setup.get("require_thinning_cloud", False)),
         breakout_lookback=int(setup.get("breakout_lookback", 10)),
         retest_band_pips=float(setup.get("retest_band_pips", 8.0)),
+        require_candle_trigger=bool(setup.get("require_candle_trigger", False)),
+        require_price_action=bool(setup.get("require_price_action", False)),
+        price_action_signals=tuple(setup["price_action_signals"]) if isinstance(setup.get("price_action_signals"), list) else ("bos",),
+        swing_lookback=int(setup.get("swing_lookback", 2)),
+        sr_tolerance_pips=float(setup.get("sr_tolerance_pips", 5.0)),
     )
 
     if strategy.instrument not in pairs:

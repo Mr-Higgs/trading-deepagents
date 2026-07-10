@@ -169,6 +169,50 @@ def test_momentum_gate_allows_happy_path():
     assert res.reason == "trend_pullback_long"
 
 
+# ---- price-action confirmation gate --------------------------------------
+
+
+def _m15_bos_long(anchor: float) -> pd.DataFrame:
+    """7-bar M15: a confirmed swing high at idx2 that the final bullish-engulfing bar's close breaks."""
+    step = STEP["M15"]
+    b = anchor
+
+    def bar(i, o, h, low, c):
+        t0 = START + i * step
+        return ("AUD_USD", "M15", t0, t0 + step, o, h, low, c, 100, True)
+
+    rows = [
+        bar(0, b + 0.0002, b + 0.0003, b + 0.0001, b + 0.00025),
+        bar(1, b + 0.0003, b + 0.0005, b + 0.0002, b + 0.0004),
+        bar(2, b + 0.0006, b + 0.0010, b + 0.0005, b + 0.0009),  # swing high (h=b+0.0010)
+        bar(3, b + 0.0005, b + 0.0006, b + 0.0004, b + 0.00055),
+        bar(4, b + 0.0003, b + 0.0004, b + 0.0002, b + 0.00035),
+        bar(5, b + 0.0005, b + 0.00052, b + 0.0001, b + 0.0002),  # bearish (engulfing prev)
+        bar(6, b + 0.0001, b + 0.0013, b + 0.0001, b + 0.0013),  # bullish engulf; close breaks b+0.0010
+    ]
+    return normalize_frame(pd.DataFrame(rows, columns=FRAME_COLUMNS))
+
+
+def test_price_action_gate_blocks_without_break_of_structure():
+    # The happy-path M15 is only 2 bars — too short for a lookback-2 swing — so BOS can't confirm.
+    eng = IchimokuPullback(make_strategy(require_price_action=True, price_action_signals=("bos",)), make_pair())
+    res = eng.evaluate(_snapshot("LONG"), NOW)
+    assert res.signal is None
+    assert res.reason == "no_price_action:bos"
+
+
+def test_price_action_gate_passes_and_records_fired_signals():
+    snap = _snapshot("LONG")
+    _tenkan, kijun = _kijun(snap["H1"])
+    snap["M15"] = _m15_bos_long(kijun)  # a real break of structure on M15
+    eng = IchimokuPullback(make_strategy(require_price_action=True, price_action_signals=("bos",)), make_pair())
+    res = eng.evaluate(snap, NOW)
+    assert res.signal is not None
+    assert res.reason == "trend_pullback_long"
+    assert res.signal.features["price_action"] == ["bos"]  # fired names recorded for the chart
+    assert res.signal.features["candle_trigger"] == "bull_engulf"
+
+
 # ---- Setup #2 breakout (skip gates; entries proven by the backtest, not brittle synthetic clouds) ----
 
 

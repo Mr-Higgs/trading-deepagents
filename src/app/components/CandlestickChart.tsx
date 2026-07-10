@@ -34,6 +34,9 @@ type Props = {
   onDrawingsChange?: (next: Drawing[]) => void;
   pipSize?: number;
   showIchimoku?: boolean;
+  showOpen?: boolean; // open-position overlays: entry/SL/TP drag-lines, R:R zones, entry markers
+  showClosed?: boolean; // closed-trade entry/exit markers
+  showSignals?: boolean; // signal / rejected / vetoed markers (never became a fill)
   onModifyPosition?: (tradeId: string, kind: "sl" | "tp", price: number) => void;
   onClosePosition?: (tradeId: string) => void;
 };
@@ -54,7 +57,7 @@ type Refs = {
   pos: PositionControls;
 };
 
-export function CandlestickChart({ candles, ichimoku, trades, onReady, tool = "cross", drawings, onDrawingsChange, pipSize, showIchimoku = true, onModifyPosition, onClosePosition }: Props) {
+export function CandlestickChart({ candles, ichimoku, trades, onReady, tool = "cross", drawings, onDrawingsChange, pipSize, showIchimoku = true, showOpen = true, showClosed = true, showSignals = true, onModifyPosition, onClosePosition }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const refs = useRef<Refs | null>(null);
@@ -144,21 +147,38 @@ export function CandlestickChart({ candles, ichimoku, trades, onReady, tool = "c
     // entry/exit markers (all trades) + interactive entry/SL/TP lines & risk/reward zones (open trades only)
     const zoneData: TradeZone[] = [];
     const positions: ManagedPosition[] = [];
+    const inRange = (t: number) => t >= first && t <= last;
     for (const t of trades) {
+      const long = t.direction !== "SHORT";
       const entryT = t.fill_ts ? Math.floor(Date.parse(t.fill_ts) / 1000) : undefined;
-      if (entryT != null && entryT >= first && entryT <= last) {
-        const long = t.direction !== "SHORT";
+      // entry marker belongs to whichever layer the filled trade is in (open vs closed)
+      const showEntry = t.status === "open" ? showOpen : showClosed;
+      if (showEntry && entryT != null && inRange(entryT)) {
         ms.push({ time: entryT as UTCTimestamp, position: long ? "belowBar" : "aboveBar", color: long ? "#26a69a" : "#ef5350", shape: long ? "arrowUp" : "arrowDown", text: long ? "B" : "S" });
       }
       const exitT = t.exit_ts ? Math.floor(Date.parse(t.exit_ts) / 1000) : undefined;
-      if (exitT != null && exitT >= first && exitT <= last) {
+      if (showClosed && exitT != null && inRange(exitT)) {
         const pnl = t.pnl;
         const color = pnl == null ? "#9ca3af" : pnl >= 0 ? "#26a69a" : "#ef5350";
         const text = pnl == null ? "×" : `× ${pnl >= 0 ? "+" : "−"}${Math.abs(pnl).toFixed(1)}`;
         ms.push({ time: exitT as UTCTimestamp, position: "inBar", color, shape: "circle", text });
       }
+      // a signal that never became a fill: pending / risk-rejected / LLM-vetoed. Drawn at its signal bar,
+      // labelled with the pattern that fired, styled by outcome. (open/closed trades have a fill_ts.)
+      const signalT = !t.fill_ts && t.signal_ts ? Math.floor(Date.parse(t.signal_ts) / 1000) : undefined;
+      if (showSignals && signalT != null && inRange(signalT) && (t.status === "signal" || t.status === "submitted" || t.status === "rejected" || t.status === "vetoed")) {
+        const dir = long ? "L" : "S";
+        const pattern = t.candle_trigger ?? (t.price_action?.length ? t.price_action.join("+") : "");
+        if (t.status === "rejected") {
+          ms.push({ time: signalT as UTCTimestamp, position: long ? "belowBar" : "aboveBar", color: "#f59e0b", shape: "square", text: `${dir} rej${t.reject_reason ? ":" + t.reject_reason : ""}` });
+        } else if (t.status === "vetoed") {
+          ms.push({ time: signalT as UTCTimestamp, position: long ? "belowBar" : "aboveBar", color: "#ef4444", shape: "square", text: `${dir} veto${pattern ? " " + pattern : ""}` });
+        } else {
+          ms.push({ time: signalT as UTCTimestamp, position: long ? "belowBar" : "aboveBar", color: "#94a3b8", shape: long ? "arrowUp" : "arrowDown", text: pattern ? `${dir}·${pattern}` : dir });
+        }
+      }
       // active trade: interactive entry / stop / target lines (drag SL/TP, × to close) + R/R zone
-      if (t.status === "open") {
+      if (showOpen && t.status === "open") {
         const entry = t.fill_price ?? t.entry_ref;
         if (t.trade_id) positions.push({ tradeId: t.trade_id, instrument: t.instrument, direction: t.direction, units: t.units, entry, stop: t.stop, tp: t.tp });
         if (entry != null && t.stop != null && t.tp != null && entryT != null) {
@@ -170,7 +190,7 @@ export function CandlestickChart({ candles, ichimoku, trades, onReady, tool = "c
     r.zones.setData(zoneData);
     ms.sort((a, b) => (a.time as number) - (b.time as number));
     r.markers.setMarkers(ms);
-  }, [candles, ichimoku, trades]);
+  }, [candles, ichimoku, trades, showOpen, showClosed, showSignals]);
 
   // push committed drawings + pip size into the primitive
   useEffect(() => {

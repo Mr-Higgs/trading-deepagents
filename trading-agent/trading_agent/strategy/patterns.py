@@ -258,12 +258,14 @@ PATTERN_INFO: dict[str, tuple[str, str, int]] = {
 }
 
 
-def matches(names, direction: str, prev: tuple, curr: tuple, prev2: tuple | None = None) -> bool:
-    """True if any pattern in `names` fires for `direction`. prev/curr/prev2 are (o, h, l, c) tuples.
+def first_match(names, direction: str, prev: tuple, curr: tuple, prev2: tuple | None = None) -> str | None:
+    """Name of the first pattern in `names` that fires for `direction`, else None. (o, h, l, c) tuples.
 
-    `names` accepts a single pattern string or an iterable of them. `prev2` is the candle *before*
-    `prev` (oldest of three); 3-candle patterns (star / three_white_soldiers / three_black_crows) are
-    skipped when it is None. Neutral tokens (doji / spinning_top / long_legged_doji) never fire.
+    Returns the CONCRETE detector name (e.g. "bull_engulf", "shooting_star", "morning_star"), not the
+    configured token: `pin_bar` resolves to "hammer"/"shooting_star" by direction, `engulfing` to
+    "bull_engulf"/"bear_engulf", etc. — that resolved name is what the chart labels the trigger candle
+    with. `names` accepts a single pattern string or an iterable. `prev2` is the candle *before* `prev`
+    (oldest of three); 3-candle patterns are skipped when it is None. Neutral tokens never fire.
     """
     if isinstance(names, str):
         names = [names]
@@ -271,34 +273,51 @@ def matches(names, direction: str, prev: tuple, curr: tuple, prev2: tuple | None
     o, h, low, c = curr
     long = direction == "LONG"
     for n in names:
-        if n == "engulfing" and (bull_engulf(po, pc, o, c) if long else bear_engulf(po, pc, o, c)):
-            return True
+        if n == "engulfing":
+            if long and bull_engulf(po, pc, o, c):
+                return "bull_engulf"
+            if not long and bear_engulf(po, pc, o, c):
+                return "bear_engulf"
         if n in ("hammer", "pin_bar") and long and hammer(o, h, low, c):
-            return True
+            return "hammer"
         if n in ("shooting_star", "pin_bar") and not long and shooting_star(o, h, low, c):
-            return True
+            return "shooting_star"
         if n == "marubozu" and marubozu(o, h, low, c) and (c > o) == long:
-            return True
+            return "marubozu"
         if n == "dragonfly_doji" and long and dragonfly_doji(o, h, low, c):
-            return True
+            return "dragonfly_doji"
         if n == "gravestone_doji" and not long and gravestone_doji(o, h, low, c):
-            return True
+            return "gravestone_doji"
         if n == "piercing_line" and long and piercing_line(prev, curr):
-            return True
+            return "piercing_line"
         if n == "dark_cloud_cover" and not long and dark_cloud_cover(prev, curr):
-            return True
-        if n == "harami" and (bull_harami(prev, curr) if long else bear_harami(prev, curr)):
-            return True
-        if n == "tweezer" and (tweezer_bottom(prev, curr) if long else tweezer_top(prev, curr)):
-            return True
+            return "dark_cloud_cover"
+        if n == "harami":
+            if long and bull_harami(prev, curr):
+                return "bull_harami"
+            if not long and bear_harami(prev, curr):
+                return "bear_harami"
+        if n == "tweezer":
+            if long and tweezer_bottom(prev, curr):
+                return "tweezer_bottom"
+            if not long and tweezer_top(prev, curr):
+                return "tweezer_top"
         if prev2 is not None:
-            if n == "star" and (morning_star(prev2, prev, curr) if long else evening_star(prev2, prev, curr)):
-                return True
+            if n == "star":
+                if long and morning_star(prev2, prev, curr):
+                    return "morning_star"
+                if not long and evening_star(prev2, prev, curr):
+                    return "evening_star"
             if n == "three_white_soldiers" and long and three_white_soldiers(prev2, prev, curr):
-                return True
+                return "three_white_soldiers"
             if n == "three_black_crows" and not long and three_black_crows(prev2, prev, curr):
-                return True
-    return False
+                return "three_black_crows"
+    return None
+
+
+def matches(names, direction: str, prev: tuple, curr: tuple, prev2: tuple | None = None) -> bool:
+    """True if any pattern in `names` fires for `direction`. Thin wrapper over `first_match`."""
+    return first_match(names, direction, prev, curr, prev2) is not None
 
 
 def _demo() -> None:
@@ -364,6 +383,12 @@ def _demo() -> None:
     # neutral tokens never fire a trigger
     assert not matches("spinning_top", "LONG", prev_bear, spin_c)
     assert not matches("doji", "LONG", prev_bear, doji_c)
+    # first_match returns the concrete detector name (for chart labelling), not the configured token
+    assert first_match(["pin_bar"], "LONG", prev_bear, hammer_c) == "hammer"
+    assert first_match(["pin_bar"], "SHORT", prev_bear, star_c) == "shooting_star"
+    assert first_match(["engulfing"], "LONG", prev_bear, (9.7, 10.15, 9.65, 10.1)) == "bull_engulf"
+    assert first_match("star", "LONG", ms[1], ms[2], prev2=ms[0]) == "morning_star"
+    assert first_match("doji", "LONG", prev_bear, doji_c) is None
     print("patterns self-check OK")
 
 

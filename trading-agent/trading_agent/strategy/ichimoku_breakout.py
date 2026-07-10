@@ -19,7 +19,7 @@ import pandas as pd
 
 from trading_agent.config import PairConfig, StrategyConfig
 from trading_agent.indicators import atr, ichimoku
-from trading_agent.strategy import signals
+from trading_agent.strategy import patterns, price_action, signals
 from trading_agent.strategy.base import StrategyResult
 from trading_agent.types import Signal
 
@@ -69,6 +69,30 @@ class IchimokuBreakout:
         if cfg.require_chikou and not signals.chikou_ok(entry, cfg.ichimoku.displacement, direction):
             return StrategyResult(None, "no_chikou")
 
+        # Optional candlestick confirmation (breakout has none by default; on only when config asks).
+        candle = None
+        if cfg.require_candle_trigger:
+            prev = entry.iloc[-2]
+            prev_ohlc = (float(prev["o"]), float(prev["h"]), float(prev["l"]), float(prev["c"]))
+            curr_ohlc = (float(curr["o"]), float(curr["h"]), float(curr["l"]), cc)
+            prev2 = entry.iloc[-3] if len(entry) >= 3 else None
+            prev2_ohlc = None if prev2 is None else (float(prev2["o"]), float(prev2["h"]), float(prev2["l"]), float(prev2["c"]))
+            candle = patterns.first_match(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc, prev2_ohlc)
+            if candle is None:
+                return StrategyResult(None, "no_trigger")
+
+        # Optional price-action confirmation (config-gated; ALL requested signals must fire).
+        pa_fired = None
+        if cfg.require_price_action:
+            want = set(cfg.price_action_signals)
+            fired = price_action.matches(
+                cfg.price_action_signals, direction, entry, cc,
+                lookback=cfg.swing_lookback, tolerance=cfg.sr_tolerance_pips * self.pair.pip_size,
+            )
+            if not want <= set(fired):
+                return StrategyResult(None, f"no_price_action:{','.join(sorted(want - set(fired)))}")
+            pa_fired = list(fired)
+
         # stop: ATR-based (WFX) or beyond the trigger candle; tp by rr
         entry_ref = cc
         if cfg.stop_rule == "atr":
@@ -106,6 +130,8 @@ class IchimokuBreakout:
                 "stop_rule": cfg.stop_rule,
                 "stop_distance": stop_distance,
                 "tenkan_gt_kijun": tenkan > kijun,
+                "candle_trigger": candle,
+                "price_action": pa_fired,
                 "style": cfg.style,
                 "stack": f"{cfg.trend_tf}/{cfg.bias_tf}/{cfg.entry_tf}",
             },

@@ -16,7 +16,7 @@ import pandas as pd
 
 from trading_agent.config import PairConfig, StrategyConfig
 from trading_agent.indicators import ichimoku
-from trading_agent.strategy import patterns, signals
+from trading_agent.strategy import patterns, price_action, signals
 from trading_agent.strategy.base import StrategyResult
 from trading_agent.types import Signal
 
@@ -85,8 +85,21 @@ class IchimokuPullback:
         # third candle back, for 3-candle triggers (star / three soldiers|crows); None -> those no-op
         prev2 = entry.iloc[-3] if len(entry) >= 3 else None
         prev2_ohlc = None if prev2 is None else (float(prev2["o"]), float(prev2["h"]), float(prev2["l"]), float(prev2["c"]))
-        if not patterns.matches(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc, prev2_ohlc):
+        candle = patterns.first_match(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc, prev2_ohlc)
+        if candle is None:
             return StrategyResult(None, "no_trigger")
+
+        # 5. price-action confirmation (config-gated; ALL requested signals must fire). Off => prior behavior.
+        pa_fired = None
+        if cfg.require_price_action:
+            want = set(cfg.price_action_signals)
+            fired = price_action.matches(
+                cfg.price_action_signals, direction, entry, cc,
+                lookback=cfg.swing_lookback, tolerance=cfg.sr_tolerance_pips * self.pair.pip_size,
+            )
+            if not want <= set(fired):
+                return StrategyResult(None, f"no_price_action:{','.join(sorted(want - set(fired)))}")
+            pa_fired = list(fired)
 
         # Build the proposal
         entry_ref = cc
@@ -121,6 +134,8 @@ class IchimokuPullback:
                 "h1_kijun": kijun,
                 "h1_tenkan_gt_kijun": tenkan > kijun,
                 "m15_trigger": list(cfg.m15_trigger),
+                "candle_trigger": candle,
+                "price_action": pa_fired,
                 "trend_distance": trend_distance,
                 "style": cfg.style,
                 "stack": f"{cfg.trend_tf}/{cfg.bias_tf}/{cfg.entry_tf}",

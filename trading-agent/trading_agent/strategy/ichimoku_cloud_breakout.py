@@ -103,7 +103,8 @@ class IchimokuCloudBreakout:
         curr_ohlc = (float(curr_row["o"]), float(curr_row["h"]), float(curr_row["l"]), cc)
         prev2 = entry.iloc[-3] if len(entry) >= 3 else None
         prev2_ohlc = None if prev2 is None else (float(prev2["o"]), float(prev2["h"]), float(prev2["l"]), float(prev2["c"]))
-        if not patterns.matches(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc, prev2_ohlc):
+        candle = patterns.first_match(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc, prev2_ohlc)
+        if candle is None:
             return StrategyResult(None, "no_trigger")
         if cfg.require_tk_momentum and not signals.tk_momentum(ich, direction):
             return StrategyResult(None, "no_momentum")
@@ -147,6 +148,7 @@ class IchimokuCloudBreakout:
                 "stop_rule": cfg.stop_rule,
                 "stop_distance": stop_distance,
                 "m15_trigger": list(cfg.m15_trigger),
+                "candle_trigger": candle,
                 "style": cfg.style,
                 "stack": f"{cfg.trend_tf}/{cfg.bias_tf}/{cfg.entry_tf}",
             },

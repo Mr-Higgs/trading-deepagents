@@ -21,6 +21,9 @@ function Pane({
   trades,
   pollMs,
   showIchimoku,
+  showOpen,
+  showClosed,
+  showSignals,
   onReady,
   onModifyPosition,
   onClosePosition,
@@ -29,6 +32,9 @@ function Pane({
   trades: Trade[];
   pollMs: number;
   showIchimoku: boolean;
+  showOpen: boolean;
+  showClosed: boolean;
+  showSignals: boolean;
   onReady: (tf: string, h: ChartHandle | null) => void;
 } & PositionHandlers) {
   const { data, loading, error } = useCandles(pollMs, tf);
@@ -39,7 +45,7 @@ function Pane({
       <div className="absolute left-2 top-1.5 z-10 rounded bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{tf}</div>
       <div className="min-h-0 flex-1">
         {candles.length ? (
-          <CandlestickChart candles={candles} ichimoku={data?.ichimoku} trades={trades} showIchimoku={showIchimoku} onReady={handleReady} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
+          <CandlestickChart candles={candles} ichimoku={data?.ichimoku} trades={trades} showIchimoku={showIchimoku} showOpen={showOpen} showClosed={showClosed} showSignals={showSignals} onReady={handleReady} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">{error ?? (loading ? "Loading…" : "No data")}</div>
         )}
@@ -48,7 +54,7 @@ function Pane({
   );
 }
 
-export function MultiChart({ trades, pollMs = 45_000, showIchimoku = true, onModifyPosition, onClosePosition }: { trades: Trade[]; pollMs?: number; showIchimoku?: boolean } & PositionHandlers) {
+export function MultiChart({ trades, pollMs = 45_000, showIchimoku = true, showOpen = true, showClosed = true, showSignals = true, onModifyPosition, onClosePosition }: { trades: Trade[]; pollMs?: number; showIchimoku?: boolean; showOpen?: boolean; showClosed?: boolean; showSignals?: boolean } & PositionHandlers) {
   const [handles, setHandles] = useState<Record<string, ChartHandle | null>>({});
 
   const onReady = useCallback((tf: string, h: ChartHandle | null) => {
@@ -82,7 +88,7 @@ export function MultiChart({ trades, pollMs = 45_000, showIchimoku = true, onMod
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-4 gap-2 md:grid-cols-2 md:grid-rows-2">
       {PANES.map((tf) => (
-        <Pane key={tf} tf={tf} trades={trades} pollMs={pollMs} showIchimoku={showIchimoku} onReady={onReady} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
+        <Pane key={tf} tf={tf} trades={trades} pollMs={pollMs} showIchimoku={showIchimoku} showOpen={showOpen} showClosed={showClosed} showSignals={showSignals} onReady={onReady} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
       ))}
     </div>
   );
