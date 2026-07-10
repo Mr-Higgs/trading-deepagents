@@ -21,7 +21,7 @@ import oandapyV20.endpoints.trades as trades
 import oandapyV20.endpoints.transactions as transactions
 from oandapyV20 import API
 
-from trading_agent.oanda_env import practice_account_id, practice_environment
+from trading_agent.oanda_env import practice_account_id, practice_environment, with_retries
 from trading_agent.types import Candle, OpenTrade, OrderRequest, TradeEvent
 
 _EXIT_REASON = {"TAKE_PROFIT_ORDER": "TP", "STOP_LOSS_ORDER": "STOP"}
@@ -42,7 +42,8 @@ class _OandaOpen:
 
 class OandaPaperBackend:
     def __init__(self, api_key: str, account_id: str, instrument: str, environment: str = "practice", price_precision: int = 5) -> None:
-        self._api = API(access_token=api_key, environment=environment)
+        # GET reconcile/read calls retry transient resets; the order POST is never auto-retried (no double-submit).
+        self._api = with_retries(API(access_token=api_key, environment=environment))
         self._account = account_id
         self._instrument = instrument
         self._precision = price_precision

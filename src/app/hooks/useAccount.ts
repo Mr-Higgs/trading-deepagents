@@ -32,6 +32,11 @@ export type OpenTrade = {
   price?: string;
   unrealizedPL?: string;
   openTime?: string;
+  // OANDA attaches these dependent orders when the trade was opened with SL/TP on fill (the paper backend does).
+  stopLossOrder?: { price?: string };
+  takeProfitOrder?: { price?: string };
+  // our loop tags orders with clientExtensions.id (== the stream trade_id) — used to dedupe against the run's trades.
+  clientExtensions?: { id?: string };
 };
 
 export type ClosedTrade = {
@@ -41,6 +46,7 @@ export type ClosedTrade = {
   price?: string; // entry
   averageClosePrice?: string;
   realizedPL?: string;
+  openTime?: string; // RFC3339 — backend returns it; used for the entry marker
   closeTime?: string;
 };
 

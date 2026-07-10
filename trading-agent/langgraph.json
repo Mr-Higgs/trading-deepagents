@@ -4,6 +4,7 @@
     "trade_gate": "./trading_agent/graph.py:agent",
     "trade_loop": "./trading_agent/loop_graph.py:loop",
     "account": "./trading_agent/account_graph.py:account",
+    "account_action": "./trading_agent/account_action_graph.py:account_action",
     "config": "./trading_agent/config_graph.py:config",
     "candles": "./trading_agent/candles_graph.py:candles"
   },

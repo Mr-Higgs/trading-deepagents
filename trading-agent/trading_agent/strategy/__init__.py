@@ -10,10 +10,16 @@ def build_strategy(strategy_cfg: StrategyConfig, pair: PairConfig) -> Strategy:
     """Pick the deterministic strategy by `strategy_cfg.name`. Both share the Strategy protocol."""
     # lazy imports so this package's __init__ has no import cycle with the strategy modules
     from trading_agent.strategy.ichimoku_breakout import IchimokuBreakout
+    from trading_agent.strategy.ichimoku_cloud_breakout import IchimokuCloudBreakout
     from trading_agent.strategy.ichimoku_confluence import IchimokuConfluence
     from trading_agent.strategy.ichimoku_pullback import IchimokuPullback
 
-    registry = {"ichimoku_pullback": IchimokuPullback, "ichimoku_breakout": IchimokuBreakout, "ichimoku_confluence": IchimokuConfluence}
+    registry = {
+        "ichimoku_pullback": IchimokuPullback,
+        "ichimoku_breakout": IchimokuBreakout,
+        "ichimoku_confluence": IchimokuConfluence,
+        "ichimoku_cloud_breakout": IchimokuCloudBreakout,
+    }
     try:
         cls = registry[strategy_cfg.name]
     except KeyError:

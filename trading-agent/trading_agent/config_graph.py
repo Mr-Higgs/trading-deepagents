@@ -15,6 +15,7 @@ import yaml
 from langgraph.graph import END, START, StateGraph
 
 from trading_agent.config import load_config
+from trading_agent.strategy.patterns import TRIGGER_NAMES
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_DIR = _ROOT / "config"
@@ -40,11 +41,12 @@ _RISK_RULES: dict[str, Any] = {
     "trail_buffer_pips": ("num", 0.0, 100.0),
     "trail_distance_pips": ("num", 0.0, 500.0),
 }
-_PATTERN_NAMES = {"engulfing", "hammer", "shooting_star", "pin_bar", "doji"}
+_PATTERN_NAMES = set(TRIGGER_NAMES)  # single source of truth: whatever patterns.matches recognizes
 _CONFLUENCE_SIGNALS = {"kijun", "tenkan", "span_a", "span_b", "cloud"}
 _STRAT_RULES: dict[str, Any] = {
     "version": ("str",),
     "name": ("choice", {"ichimoku_pullback", "ichimoku_breakout", "ichimoku_confluence"}),
+    "style": ("choice", {"scalping", "intraday", "swing", "position"}),  # expands to the triple-screen stack in config.py
     "rr": ("num", 0.1, 10.0),
     "stop_rule": ("choice", {"kijun", "cloud", "atr"}),
     "stop_buffer_pips": ("num", 0.0, 100.0),
@@ -107,9 +109,10 @@ def _current() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     strat = {
         "version": s.version,
         "instrument": s.instrument,  # read-only
-        "trend_tf": s.trend_tf,  # read-only
-        "bias_tf": s.bias_tf,  # read-only
-        "entry_tf": s.entry_tf,  # read-only
+        "style": s.style,  # editable dropdown; drives the three *_tf below
+        "trend_tf": s.trend_tf,  # read-only (derived from style)
+        "bias_tf": s.bias_tf,  # read-only (derived from style)
+        "entry_tf": s.entry_tf,  # read-only (derived from style)
         "name": s.name,
         "m15_trigger": list(s.m15_trigger),
         "require_tk_momentum": s.require_tk_momentum,

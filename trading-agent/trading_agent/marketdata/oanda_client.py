@@ -13,10 +13,9 @@ import pandas as pd
 from oandapyV20 import API
 from oandapyV20.endpoints.instruments import InstrumentsCandles
 
-from trading_agent.marketdata.base import FRAME_COLUMNS, normalize_frame
-from trading_agent.oanda_env import practice_environment
+from trading_agent.marketdata.base import FRAME_COLUMNS, GRANULARITY_DELTAS as _GRAN_DELTA, normalize_frame
+from trading_agent.oanda_env import practice_environment, with_retries
 
-_GRAN_DELTA = {"M15": timedelta(minutes=15), "H1": timedelta(hours=1), "H4": timedelta(hours=4), "D": timedelta(days=1)}
 _PRICE_KEY = {"M": "mid", "B": "bid", "A": "ask"}
 _MAX_COUNT = 5000  # OANDA per-request candle cap
 
@@ -43,7 +42,7 @@ def _batch_to_rows(batch: list[dict], instrument: str, granularity: str, delta: 
 
 class OandaClient:
     def __init__(self, api_key: str, environment: str = "practice") -> None:
-        self._api = API(access_token=api_key, environment=environment)
+        self._api = with_retries(API(access_token=api_key, environment=environment))  # survive transient connection resets on the live poll
 
     @classmethod
     def from_env(cls) -> OandaClient:

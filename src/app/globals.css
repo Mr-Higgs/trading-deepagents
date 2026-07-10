@@ -125,6 +125,10 @@
     --accent-foreground: 220 13% 13%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 13%;
     --border: 220 13% 91%;
     --input: 220 13% 91%;
     --ring: 180 35% 17%;
@@ -136,56 +140,60 @@
     --chart-5: 27 87% 67%;
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      /* App-specific color variables */
-      --color-primary: #1c3c3c;
-      --color-user-message: #065a8a;
-      --color-user-message-bg: #2d2d2d;
-      --color-avatar-bg: #1c3c3c;
-      --color-secondary: #bbc4c4;
-      --color-success: #34d399;
-      --color-warning: #fbbf24;
-      --color-error: #f87171;
-      --color-background: #202020;
-      --color-subagent-hover: #1e3f3f;
-      --color-surface: #2a2a2a;
-      --color-border: #404040;
-      --color-border-light: #353535;
-      --color-text-primary: #f3f4f6;
-      --color-text-secondary: #9ca3af;
-      --color-text-tertiary: #6b7280;
-      --color-file-button: #2a2a2a;
-      --color-file-button-hover: #353535;
+  /* Forced always-dark navy theme (TradingView-like). `.dark` is set on <html>, so it wins
+     over :root by source order and Tailwind's class-based `dark:` variants also fire. */
+  .dark {
+    /* App-specific color variables (navy terminal) */
+    --color-primary: #2dd4bf;
+    --color-user-message: #065a8a;
+    --color-user-message-bg: #1e222d;
+    --color-avatar-bg: #1c3c3c;
+    --color-secondary: #bbc4c4;
+    --color-success: #26a69a;
+    --color-warning: #f0a020;
+    --color-error: #ef5350;
+    --color-background: #131722;
+    --color-subagent-hover: #1e3f3f;
+    --color-surface: #1e222d;
+    --color-border: #363a45;
+    --color-border-light: #2a2e39;
+    --color-text-primary: #d1d4dc;
+    --color-text-secondary: #787b86;
+    --color-text-tertiary: #5d606b;
+    --color-file-button: #1e222d;
+    --color-file-button-hover: #2a2e39;
 
-      /* Tailwind/Radix UI component variables for dark mode */
-      --radius: 0.5rem;
-      --background: 0 0% 13%;
-      --foreground: 220 13% 95%;
-      --card: 0 0% 18%;
-      --card-foreground: 220 13% 95%;
-      --popover: 0 0% 18%;
-      --popover-foreground: 220 13% 95%;
-      --primary: 174 72% 56%;
-      --primary-foreground: 0 0% 13%;
-      --secondary: 0 0% 25%;
-      --secondary-foreground: 220 13% 95%;
-      --muted: 0 0% 22%;
-      --muted-foreground: 220 9% 70%;
-      --accent: 0 0% 22%;
-      --accent-foreground: 220 13% 95%;
-      --destructive: 0 63% 71%;
-      --destructive-foreground: 0 0% 13%;
-      --border: 0 0% 28%;
-      --input: 0 0% 28%;
-      --ring: 174 72% 56%;
-      --sidebar: 0 0% 18%;
-      --chart-1: 220 70% 50%;
-      --chart-2: 160 60% 45%;
-      --chart-3: 30 80% 55%;
-      --chart-4: 280 65% 60%;
-      --chart-5: 340 75% 55%;
-    }
+    /* Tailwind/Radix UI component variables — navy */
+    --radius: 0.5rem;
+    --background: 225 22% 11%;
+    --foreground: 223 17% 84%;
+    --card: 226 21% 15%;
+    --card-foreground: 223 17% 84%;
+    --popover: 226 21% 15%;
+    --popover-foreground: 223 17% 84%;
+    --primary: 174 72% 56%;
+    --primary-foreground: 225 22% 11%;
+    --secondary: 223 15% 20%;
+    --secondary-foreground: 223 17% 84%;
+    --muted: 223 15% 20%;
+    --muted-foreground: 225 6% 50%;
+    --accent: 223 15% 20%;
+    --accent-foreground: 223 17% 84%;
+    --destructive: 1 83% 63%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 173 61% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 87% 53%;
+    --warning-foreground: 225 22% 11%;
+    --border: 224 13% 24%;
+    --input: 224 13% 24%;
+    --ring: 174 72% 56%;
+    --sidebar: 226 21% 15%;
+    --chart-1: 217 91% 60%;
+    --chart-2: 173 61% 45%;
+    --chart-3: 38 87% 53%;
+    --chart-4: 280 65% 65%;
+    --chart-5: 340 75% 60%;
   }
 }
 

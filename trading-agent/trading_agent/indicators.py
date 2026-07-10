@@ -69,3 +69,22 @@ def atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
     prev_close = close.shift(1)
     tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
     return tr.ewm(alpha=1.0 / length, adjust=False, min_periods=length).mean()
+
+
+def price_dislocation(df: pd.DataFrame, lookback: int = 60, min_periods: int = 20) -> float:
+    """Z-score of the latest close vs its own rolling window - a proxy for the AQR "Opportunistic
+    Macro" dislocation (how far price sits from a recent fair-value anchor). |z| >= ~2 is a stretch.
+
+    Returns NaN when there is too little history or the window is flat (std == 0). Lookahead-safe:
+    reads only the trailing `lookback` closes up to and including the last (decision) bar.
+    ponytail: a rolling-window z-score, not a real fair-value model (PPP / real-exchange-rate); it is
+    the cheap deterministic stand-in for the model to reason over. Upgrade path if it proves too noisy.
+    """
+    close = df["c"].astype(float)
+    if len(close) < min_periods:
+        return float("nan")
+    window = close.iloc[-lookback:]
+    mean, std = window.mean(), window.std(ddof=0)
+    if pd.isna(std) or std == 0:
+        return float("nan")
+    return float((close.iloc[-1] - mean) / std)

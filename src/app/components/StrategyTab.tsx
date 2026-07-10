@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useServerConfig, type StrategyConfig } from "@/app/hooks/useServerConfig";
-import { getGateMode, setGateMode, type GateMode } from "@/lib/runPrefs";
+import { getAgentPrefs, setAgentPrefs, type AgentPrefs, type Authority, type GateMode } from "@/lib/runPrefs";
 
 // selectable Ichimoku strategies (wired to the engine via strategy.name)
 const ICHIMOKU = [
@@ -26,13 +26,22 @@ const PATTERNS = ["engulfing", "pin_bar", "hammer", "shooting_star", "doji"];
 
 type Form = Pick<
   StrategyConfig,
-  "version" | "name" | "rr" | "stop_rule" | "stop_buffer_pips" | "h1_pullback_band" | "min_trend_distance_pips" | "tenkan" | "kijun" | "senkou_b" | "displacement" | "m15_trigger" | "require_tk_momentum" | "require_chikou" | "breakout_ref"
+  "version" | "name" | "style" | "rr" | "stop_rule" | "stop_buffer_pips" | "h1_pullback_band" | "min_trend_distance_pips" | "tenkan" | "kijun" | "senkou_b" | "displacement" | "m15_trigger" | "require_tk_momentum" | "require_chikou" | "breakout_ref"
 >;
+
+// trading styles → triple-screen stack (mirrors config.py STYLES; shown as a hint next to the picker)
+const STYLES = [
+  { id: "scalping", name: "Scalping", stack: "M15/M5/M1" },
+  { id: "intraday", name: "Intraday", stack: "H1/M15/M5" },
+  { id: "swing", name: "Swing", stack: "H4/H1/M15" },
+  { id: "position", name: "Position", stack: "D/H4/H1" },
+];
 
 function toForm(s: StrategyConfig): Form {
   return {
     version: s.version,
     name: s.name,
+    style: s.style ?? "swing",
     rr: s.rr,
     stop_rule: s.stop_rule,
     stop_buffer_pips: s.stop_buffer_pips,
@@ -61,13 +70,19 @@ function Num({ id, label, value, onChange, step }: { id: string; label: string; 
 export function StrategyTab() {
   const { strategy, load, save } = useServerConfig();
   const [form, setForm] = useState<Form | null>(null);
-  const [mode, setMode] = useState<GateMode>("deterministic");
+  const [prefs, setPrefs] = useState<AgentPrefs>(getAgentPrefs);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     void load().then((res) => res.strategy && setForm(toForm(res.strategy)));
-    setMode(getGateMode());
+    setPrefs(getAgentPrefs());
   }, [load]);
+
+  const mode = prefs.gateMode;
+  const patchPrefs = (p: Partial<AgentPrefs>) => {
+    setAgentPrefs(p);
+    setPrefs((cur) => ({ ...cur, ...p }));
+  };
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => (f ? { ...f, [k]: v } : f));
   const num = (k: keyof Form) => (v: string) => set(k, Number(v) as Form[typeof k]);
@@ -80,10 +95,7 @@ export function StrategyTab() {
       return { ...f, m15_trigger: next.length ? next : f.m15_trigger }; // keep at least one
     });
 
-  const chooseMode = (m: GateMode) => {
-    setMode(m);
-    setGateMode(m);
-  };
+  const chooseMode = (m: GateMode) => patchPrefs({ gateMode: m });
 
   const handleSave = async () => {
     if (!form) return;
@@ -127,6 +139,30 @@ export function StrategyTab() {
         </div>
       </div>
 
+      {/* trading style → triple-screen timeframe stack (Elder's three screens) */}
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Trading style — triple screen</div>
+        <div className="grid gap-2 sm:grid-cols-4">
+          {STYLES.map((t) => {
+            const active = form?.style === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => set("style", t.id)}
+                className={`rounded-lg border p-3 text-left transition ${active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:border-primary/40"}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-foreground">{t.name}</span>
+                  {active && <Check className="h-4 w-4 text-primary" />}
+                </div>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{t.stack}</p>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1.5 text-xs text-muted-foreground">trend → bias → entry. The entry timeframe is the decision clock. Save, then start a run to apply.</p>
+      </div>
+
       {/* config */}
       <div className="rounded-lg border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
@@ -136,17 +172,78 @@ export function StrategyTab() {
 
         {form ? (
           <div className="space-y-4 p-4">
-            {/* gate mode */}
-            <div>
-              <Label className="text-xs">Gate mode (live runs)</Label>
-              <div className="mt-1 inline-flex rounded-md border border-border p-0.5">
-                {(["deterministic", "agent"] as GateMode[]).map((m) => (
-                  <button key={m} onClick={() => chooseMode(m)} className={`rounded px-3 py-1 text-xs font-medium ${mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                    {m === "agent" ? "LLM gate" : "deterministic"}
-                  </button>
-                ))}
+            {/* LLM decision layer (applies to backtest AND live/demo runs) */}
+            <div className="rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Label className="text-xs">LLM decision layer</Label>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Applies to backtest and live/demo runs.</p>
+                </div>
+                <div className="inline-flex rounded-md border border-border p-0.5">
+                  {(["deterministic", "agent"] as GateMode[]).map((m) => (
+                    <button key={m} onClick={() => chooseMode(m)} className={`rounded px-3 py-1 text-xs font-medium ${mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                      {m === "agent" ? "LLM" : "deterministic"}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">{mode === "agent" ? "The LLM confirmation gate can veto signals." : "Pure rule engine — no LLM in the loop."}</p>
+
+              {mode === "agent" ? (
+                <div className="mt-3 space-y-3 border-t border-border pt-3">
+                  {/* authority: veto-only gate vs full signal authority */}
+                  <div>
+                    <Label className="text-xs">Authority</Label>
+                    <div className="mt-1 inline-flex rounded-md border border-border p-0.5">
+                      {(["gate", "signal"] as Authority[]).map((a) => (
+                        <button key={a} onClick={() => patchPrefs({ authority: a })} className={`rounded px-3 py-1 text-xs font-medium ${prefs.authority === a ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                          {a === "signal" ? "Full signal" : "Gate (veto only)"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {prefs.authority === "signal"
+                        ? "Deterministic strategy is the baseline; the LLM may approve, veto, or emit refined direction/entry/stop/TP. Size & hard risk limits stay code-owned."
+                        : "The LLM only approves or vetoes the code-computed signal — it never changes prices."}
+                    </p>
+                  </div>
+
+                  {/* analyst sub-agents */}
+                  <div>
+                    <Label className="text-xs">Analyst sub-agents</Label>
+                    <div className="mt-1 grid gap-2 sm:grid-cols-3">
+                      {([["technical", "Technical", "Ichimoku context"], ["fundamental", "Fundamental", "Economic calendar"], ["sentiment", "Sentiment", "CFTC COT positioning"]] as const).map(([key, label, desc]) => (
+                        <div key={key} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                          <div>
+                            <Label htmlFor={`an-${key}`} className="text-xs">{label}</Label>
+                            <p className="text-[11px] text-muted-foreground">{desc}</p>
+                          </div>
+                          <Switch id={`an-${key}`} checked={prefs[key]} onCheckedChange={(v) => patchPrefs({ [key]: v } as Partial<AgentPrefs>)} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* verdict cache (backtest determinism) */}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                      <div>
+                        <Label htmlFor="vc-cache" className="text-xs">Cache verdicts</Label>
+                        <p className="text-[11px] text-muted-foreground">Backtest re-runs replay cached decisions (free & deterministic)</p>
+                      </div>
+                      <Switch id="vc-cache" checked={prefs.cache} onCheckedChange={(v) => patchPrefs({ cache: v })} />
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                      <div>
+                        <Label htmlFor="vc-refresh" className="text-xs">Refresh cache</Label>
+                        <p className="text-[11px] text-muted-foreground">Ignore cached verdicts, call the LLM fresh (backtest)</p>
+                      </div>
+                      <Switch id="vc-refresh" checked={prefs.refresh} onCheckedChange={(v) => patchPrefs({ refresh: v })} disabled={!prefs.cache} />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] text-muted-foreground">Pure rule engine — no LLM in the loop.</p>
+              )}
             </div>
 
             {/* candlestick trigger patterns */}

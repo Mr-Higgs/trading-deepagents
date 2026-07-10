@@ -1,11 +1,13 @@
-# Phase-2 LLM confirmation gate. Only takes effect in `live` mode (agent strategy is live/forward
-# only; backtest always uses the deterministic IchimokuPullback). Needs ANTHROPIC_API_KEY in .env.
+# Phase-2 LLM decision layer. Applies to backtest, live, and demo (any run built via _make_strategy).
+# Needs ANTHROPIC_API_KEY in .env. Absent file => deterministic mode (no LLM in the loop).
 mode: deterministic                       # deterministic | agent
-orchestrator_model: anthropic:claude-opus-4-8    # gate decision (candidates are rare, so opus is cheap here)
+authority: gate                           # gate = approve/veto only | signal = LLM may emit refined direction/entry/stop/tp
+orchestrator_model: anthropic:claude-opus-4-8    # gate/decision model (candidates are rare, so opus is cheap here)
 analyst_model: anthropic:claude-haiku-4-5        # the 3 sub-agents
 analysts:
   technical: true                         # Ichimoku H4/H1/M15 context (no external fetch)
-  fundamental: true                       # OANDA economic calendar
-  sentiment: true                         # CFTC COT (AUD net positioning)
-veto_default: false                       # gate approves unless an analyst objects
-cftc_code: "232741"                       # Australian dollar
+  fundamental: true                       # economic calendar (imminent high-impact events)
+  sentiment: true                         # CFTC COT (net speculative positioning)
+veto_default: false                       # false = approve the deterministic baseline unless analysts object; true = bias toward veto
+cftc_code: "232741"                       # CFTC contract code for the sentiment analyst (Australian dollar)
+cache: true                               # cache verdicts by signal so backtest re-runs are deterministic & free (--refresh forces fresh)

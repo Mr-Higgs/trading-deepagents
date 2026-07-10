@@ -9,7 +9,18 @@ from typing import Any
 
 import yaml
 
+from trading_agent.marketdata.base import SUPPORTED_GRANULARITIES
+
 _WEEKDAYS = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
+
+# Trading styles (docs/trading-system/Trading Styles.pdf) → triple-screen stack {trend, bias, entry}.
+# `entry` is also the decision clock. A style expands to these three timeframes; add one here to offer it.
+STYLES: dict[str, dict[str, str]] = {
+    "scalping": {"trend": "M15", "bias": "M5", "entry": "M1"},
+    "intraday": {"trend": "H1", "bias": "M15", "entry": "M5"},
+    "swing": {"trend": "H4", "bias": "H1", "entry": "M15"},
+    "position": {"trend": "D", "bias": "H4", "entry": "H1"},
+}
 
 
 def _parse_time(s: str) -> time:
@@ -130,6 +141,7 @@ class StrategyConfig:
     min_trend_distance_pips: float = 0.0  # v1.1: price must clear the cloud by this much (skip thin-cloud chop); 0 = no filter
     # v1.2 (defaults are no-ops so a config omitting them behaves exactly like v1.1):
     name: str = "ichimoku_pullback"  # which strategy: "ichimoku_pullback" | "ichimoku_breakout"
+    style: str = "custom"  # trading style whose triple-screen stack the tfs came from ("custom" = explicit timeframes block)
     require_tk_momentum: bool = False  # Tenkan/Kijun must agree with direction
     require_chikou: bool = False  # Chikou (close) vs price 26 bars ago must confirm
     breakout_ref: str = "cloud"  # ichimoku_breakout entry ref: "cloud" | "base"
@@ -143,6 +155,9 @@ class StrategyConfig:
     entry_trigger: str = "pullback"  # which inner strategy triggers: "pullback" | "breakout"
     tp_mode: str = "ichimoku_level"  # "ichimoku_level" (next level top-down) | "rr" (inner's R:R TP)
     require_thinning_cloud: bool = False  # reserved: favor breakouts when the M15 cloud is diminishing
+    # ichimoku_cloud_breakout (only used when name == "ichimoku_cloud_breakout"; no-op defaults otherwise):
+    breakout_lookback: int = 10  # bars to scan back for a cloud break before the retest
+    retest_band_pips: float = 8.0  # how close price must pull back to the broken cloud edge to count as a retest
 
 
 @dataclass(frozen=True)
@@ -150,13 +165,15 @@ class AgentsConfig:
     """Phase-2 LLM confirmation gate. Defaults => deterministic; agents.yaml is optional."""
 
     mode: str = "deterministic"  # "deterministic" | "agent"
+    authority: str = "gate"  # "gate" (approve/veto only) | "signal" (LLM may emit refined prices/direction)
     orchestrator_model: str = "anthropic:claude-opus-4-8"
     analyst_model: str = "anthropic:claude-haiku-4-5"
     technical: bool = True
     fundamental: bool = True
     sentiment: bool = True
-    veto_default: bool = False
+    veto_default: bool = False  # gate posture: True => veto unless analysts clearly support the trade
     cftc_code: str = "232741"
+    cache: bool = True  # cache LLM verdicts by signal so backtest re-runs are deterministic and free
 
 
 @dataclass(frozen=True)
@@ -269,7 +286,20 @@ def load_config(config_dir: str | Path) -> AppConfig:
         management=management,
     )
 
-    tf = strat_raw["timeframes"]
+    # A `style` expands to a preset triple-screen stack and wins; otherwise fall back to an explicit
+    # `timeframes` block (keeps pre-style configs working). Then validate against fetchable granularities.
+    style = str(strat_raw.get("style", "custom"))
+    if "style" in strat_raw:
+        if style not in STYLES:
+            msg = f"unknown style {style!r}; choose one of {sorted(STYLES)}"
+            raise ValueError(msg)
+        tf = STYLES[style]
+    else:
+        tf = strat_raw["timeframes"]
+    for role, gran in (("trend", tf["trend"]), ("bias", tf["bias"]), ("entry", tf["entry"])):
+        if gran not in SUPPORTED_GRANULARITIES:
+            msg = f"{role} timeframe {gran!r} is not a fetchable granularity; supported: {sorted(SUPPORTED_GRANULARITIES)}"
+            raise ValueError(msg)
     ich = strat_raw["ichimoku"]
     setup = strat_raw["setup"]
     strategy = StrategyConfig(
@@ -278,6 +308,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         trend_tf=tf["trend"],
         bias_tf=tf["bias"],
         entry_tf=tf["entry"],
+        style=style,
         ichimoku=IchimokuParams(
             tenkan=int(ich["tenkan"]),
             kijun=int(ich["kijun"]),
@@ -302,6 +333,8 @@ def load_config(config_dir: str | Path) -> AppConfig:
         entry_trigger=str(setup.get("entry_trigger", "pullback")),
         tp_mode=str(setup.get("tp_mode", "ichimoku_level")),
         require_thinning_cloud=bool(setup.get("require_thinning_cloud", False)),
+        breakout_lookback=int(setup.get("breakout_lookback", 10)),
+        retest_band_pips=float(setup.get("retest_band_pips", 8.0)),
     )
 
     if strategy.instrument not in pairs:
@@ -313,6 +346,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
     an = agents_raw.get("analysts") or {}
     agents = AgentsConfig(
         mode=agents_raw.get("mode", "deterministic"),
+        authority=str(agents_raw.get("authority", "gate")),
         orchestrator_model=agents_raw.get("orchestrator_model", "anthropic:claude-opus-4-8"),
         analyst_model=agents_raw.get("analyst_model", "anthropic:claude-haiku-4-5"),
         technical=bool(an.get("technical", True)),
@@ -320,6 +354,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         sentiment=bool(an.get("sentiment", True)),
         veto_default=bool(agents_raw.get("veto_default", False)),
         cftc_code=str(agents_raw.get("cftc_code", "232741")),
+        cache=bool(agents_raw.get("cache", True)),
     )
 
     return AppConfig(pairs=pairs, sessions=sessions, risk=risk, strategy=strategy, config_dir=config_dir, agents=agents)

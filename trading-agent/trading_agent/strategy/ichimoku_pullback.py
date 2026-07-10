@@ -82,7 +82,10 @@ class IchimokuPullback:
         cc = float(curr["c"])
         prev_ohlc = (float(prev["o"]), float(prev["h"]), float(prev["l"]), float(prev["c"]))
         curr_ohlc = (float(curr["o"]), float(curr["h"]), float(curr["l"]), cc)
-        if not patterns.matches(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc):
+        # third candle back, for 3-candle triggers (star / three soldiers|crows); None -> those no-op
+        prev2 = entry.iloc[-3] if len(entry) >= 3 else None
+        prev2_ohlc = None if prev2 is None else (float(prev2["o"]), float(prev2["h"]), float(prev2["l"]), float(prev2["c"]))
+        if not patterns.matches(cfg.m15_trigger, direction, prev_ohlc, curr_ohlc, prev2_ohlc):
             return StrategyResult(None, "no_trigger")
 
         # Build the proposal
@@ -119,6 +122,8 @@ class IchimokuPullback:
                 "h1_tenkan_gt_kijun": tenkan > kijun,
                 "m15_trigger": list(cfg.m15_trigger),
                 "trend_distance": trend_distance,
+                "style": cfg.style,
+                "stack": f"{cfg.trend_tf}/{cfg.bias_tf}/{cfg.entry_tf}",
             },
             reason=reason,
         )

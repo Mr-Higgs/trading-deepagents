@@ -86,3 +86,54 @@ def test_dict_structured_response_is_tolerated():
     out = AgentStrategy(_StubInner(StrategyResult(_signal(), "trend_pullback_long")), orch, pair=None).evaluate({}, NOW)
     assert out.signal is not None
     assert out.signal.features["llm_verdict"]["confidence"] == 0.6
+
+
+def _agent_signal(orch) -> AgentStrategy:
+    return AgentStrategy(_StubInner(StrategyResult(_signal(), "trend_pullback_long")), orch, pair=None, authority="signal")
+
+
+def test_signal_modify_applies_new_prices_and_recomputes_rr():
+    orch = _StubOrch(Verdict(decision="modify", confidence=0.7, rationale="tighter stop fits the pullback", entry=0.67050, stop=0.66850, tp=0.67500))
+    out = _agent_signal(orch).evaluate({}, NOW)
+    assert out.signal is not None
+    assert (out.signal.entry_ref, out.signal.stop, out.signal.tp) == (0.67050, 0.66850, 0.67500)
+    assert out.signal.rr == round((0.67500 - 0.67050) / (0.67050 - 0.66850), 4)  # code recomputes RR, never trusts the LLM's
+    assert out.signal.features["llm_verdict"]["decision"] == "modify"
+
+
+def test_signal_modify_omitted_field_keeps_baseline():
+    sig = _signal()
+    orch = _StubOrch(Verdict(decision="modify", confidence=0.6, rationale="just move the target", tp=0.67600))  # entry/stop/direction omitted
+    out = _agent_signal(orch).evaluate({}, NOW)
+    assert out.signal is not None
+    assert (out.signal.entry_ref, out.signal.stop) == (sig.entry_ref, sig.stop)  # unset fields keep the deterministic value
+    assert out.signal.tp == 0.67600
+
+
+def test_signal_modify_invalid_ordering_fails_closed():
+    orch = _StubOrch(Verdict(decision="modify", confidence=0.9, rationale="bad", stop=0.67500))  # stop above entry for a LONG
+    out = _agent_signal(orch).evaluate({}, NOW)
+    assert out.signal is None
+    assert out.reason.startswith("llm_invalid_signal:")
+
+
+def test_signal_modify_absurd_price_fails_closed():
+    orch = _StubOrch(Verdict(decision="modify", confidence=0.9, rationale="fat finger", entry=5.0, stop=4.9, tp=5.2))  # miles off baseline
+    out = _agent_signal(orch).evaluate({}, NOW)
+    assert out.signal is None
+    assert out.reason.startswith("llm_invalid_signal:")
+
+
+def test_signal_authority_still_vetoes():
+    orch = _StubOrch(Verdict(decision="veto", confidence=0.7, rationale="news risk"))
+    out = _agent_signal(orch).evaluate({}, NOW)
+    assert out.signal is None
+    assert out.reason.startswith("llm_veto:")
+
+
+def test_gate_mode_treats_modify_as_veto():
+    # In gate mode the LLM has no price authority; a stray "modify" must never change prices -> no trade.
+    orch = _StubOrch(Verdict(decision="modify", confidence=0.9, rationale="ignored", entry=0.6, stop=0.5, tp=0.8))
+    out = AgentStrategy(_StubInner(StrategyResult(_signal(), "trend_pullback_long")), orch, pair=None, authority="gate").evaluate({}, NOW)
+    assert out.signal is None
+    assert out.reason.startswith("llm_veto:")

@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("langchain_core")  # tools.py imports @tool; only present under the phase2 group
 
-from trading_agent.strategy.agents.tools import summarize_calendar, summarize_cot
+from trading_agent.strategy.agents.tools import summarize_calendar, summarize_cot, summarize_macro
 
 
 def test_summarize_cot_net_long():
@@ -40,3 +40,29 @@ def test_summarize_calendar_flags_high_impact_first():
 
 def test_summarize_calendar_empty():
     assert "No scheduled" in summarize_calendar([])
+
+
+def test_summarize_calendar_shows_actual_vs_forecast():
+    # A release already out (actual populated) is the Systematic-Macro "surprise" -> actual vs forecast.
+    events = [{"title": "AU CPI", "country": "AUD", "impact": "High", "actual": "1.0%", "forecast": "0.8%", "previous": "0.7%"}]
+    s = summarize_calendar(events)
+    assert "actual 1.0% vs forecast 0.8%" in s
+
+
+def test_summarize_macro_rate_differential_and_sentiment():
+    data = {
+        "US policy rate": [4.30, 4.33],  # rising
+        "AU policy rate": [4.10, 4.10],  # flat
+        "Metals index": [120.0, 123.0],  # rising
+        "VIX": [22.0, 15.0],  # falling -> risk-on
+    }
+    s = summarize_macro(data)
+    assert "differential -0.23pp" in s  # AU 4.10 - US 4.33
+    assert "AUD carry negative" in s
+    assert "risk-on" in s
+    assert "rising" in s  # metals / US rate direction
+
+
+def test_summarize_macro_empty():
+    assert "unavailable" in summarize_macro({}).lower()
+    assert "unavailable" in summarize_macro({"VIX": []}).lower()

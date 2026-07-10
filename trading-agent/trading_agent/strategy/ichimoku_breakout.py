@@ -106,6 +106,8 @@ class IchimokuBreakout:
                 "stop_rule": cfg.stop_rule,
                 "stop_distance": stop_distance,
                 "tenkan_gt_kijun": tenkan > kijun,
+                "style": cfg.style,
+                "stack": f"{cfg.trend_tf}/{cfg.bias_tf}/{cfg.entry_tf}",
             },
             reason=reason,
         )

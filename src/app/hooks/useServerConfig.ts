@@ -24,6 +24,7 @@ export type RiskConfig = {
 export type StrategyConfig = {
   version: string;
   instrument?: string; // read-only
+  style?: string; // "scalping" | "intraday" | "swing" | "position" — drives the three *_tf below
   trend_tf?: string;
   bias_tf?: string;
   entry_tf?: string;

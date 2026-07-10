@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAccount, type AccountSummary } from "@/app/hooks/useAccount";
+import { type AccountSummary, type OpenTrade } from "@/app/hooks/useAccount";
+import { useAccountContext } from "@/providers/AccountProvider";
+import { ManageTradeDialog } from "@/app/components/ManageTradeDialog";
 
 const num = (s?: string | number) => (s === undefined || s === null ? NaN : typeof s === "number" ? s : parseFloat(s));
 const money = (s?: string | number, ccy = "USD") => {
@@ -44,8 +47,9 @@ function SummaryTiles({ s }: { s: AccountSummary }) {
 }
 
 export function AccountTab() {
-  const { data, loading, error, refresh } = useAccount();
+  const { data, loading, error, refresh } = useAccountContext();
   const s = data?.summary;
+  const [manage, setManage] = useState<OpenTrade | null>(null);
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
@@ -108,7 +112,7 @@ export function AccountTab() {
                 <table className="w-full min-w-[640px] text-sm">
                   <thead className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
-                      <th>ID</th><th>Instrument</th><th>Units</th><th>Entry</th><th className="text-right">Unrealized P/L</th><th>Opened</th>
+                      <th>ID</th><th>Instrument</th><th>Units</th><th>Entry</th><th className="text-right">Unrealized P/L</th><th>Opened</th><th className="text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="font-mono tabular-nums [&>tr]:border-t [&>tr]:border-border">
@@ -120,6 +124,9 @@ export function AccountTab() {
                         <td>{t.price}</td>
                         <td className={`text-right ${plColor(t.unrealizedPL)}`}>{signed(t.unrealizedPL)}</td>
                         <td className="text-muted-foreground">{t.openTime ? new Date(t.openTime).toISOString().slice(0, 16).replace("T", " ") : "—"}</td>
+                        <td className="text-right">
+                          <Button size="sm" variant="outline" onClick={() => setManage(t)}>Manage</Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -163,6 +170,8 @@ export function AccountTab() {
           </div>
         </>
       )}
+
+      <ManageTradeDialog trade={manage} onOpenChange={(o) => !o && setManage(null)} />
     </div>
   );
 }

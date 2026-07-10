@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import os
 
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 _PRACTICE_PREFIX = "101-"  # OANDA v20: 101- = fxTrade Practice, 001- = live fxTrade
 
 
@@ -35,3 +38,17 @@ def practice_account_id() -> str:
         msg = f"account id {acct!r} is not a practice ({_PRACTICE_PREFIX}) account; refusing to place orders on a live account"
         raise LiveAccountRefused(msg)
     return acct
+
+
+def with_retries(api):
+    """Mount a urllib3 retry adapter on the API's requests.Session so a transient connection reset
+    (a stale keep-alive socket on a long-lived live run → ECONNRESET, seen as
+    ConnectionError(ProtocolError('Connection aborted.', ...))) retries idempotent GETs instead of
+    killing the run. Order POSTs are NOT auto-retried (allowed_methods={GET}) — the money path stays
+    fail-closed, no double-submit. Both OANDA seams route their API construction through here.
+    """
+    retry = Retry(total=4, connect=4, read=4, status=0, backoff_factor=1.0, allowed_methods=frozenset(["GET"]), raise_on_status=False)
+    adapter = HTTPAdapter(max_retries=retry)
+    api.client.mount("https://", adapter)
+    api.client.mount("http://", adapter)
+    return api

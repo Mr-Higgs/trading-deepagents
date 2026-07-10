@@ -69,6 +69,7 @@ class CloudPaneView implements IPrimitivePaneView {
 
 export class IchimokuCloud implements ISeriesPrimitive<Time> {
   private data: CloudPoint[] = [];
+  private visible = true;
   private series: ISeriesApi<SeriesType, Time> | null = null;
   private timeScale: ITimeScaleApi<Time> | null = null;
   private requestUpdateFn?: () => void;
@@ -90,6 +91,11 @@ export class IchimokuCloud implements ISeriesPrimitive<Time> {
     this.requestUpdateFn?.();
   }
 
+  setVisible(v: boolean): void {
+    this.visible = v;
+    this.requestUpdateFn?.();
+  }
+
   paneViews(): readonly IPrimitivePaneView[] {
     return [this.view];
   }
@@ -98,7 +104,7 @@ export class IchimokuCloud implements ISeriesPrimitive<Time> {
   coords(): XY[] {
     const ts = this.timeScale;
     const s = this.series;
-    if (!ts || !s) return [];
+    if (!this.visible || !ts || !s) return [];
     const out: XY[] = [];
     for (const p of this.data) {
       const x = ts.timeToCoordinate(p.t);

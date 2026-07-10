@@ -8,7 +8,7 @@ already CLOSED by `now`** (`close_time <= now`). The still-forming higher-timefr
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol
 
 import pandas as pd
@@ -16,6 +16,18 @@ import pandas as pd
 from trading_agent.types import Candle
 
 FRAME_COLUMNS = ["instrument", "tf", "open_time", "close_time", "o", "h", "l", "c", "volume", "complete"]
+
+# OANDA candle granularities the system can fetch (codes are OANDA's own). Single source of truth:
+# oanda_client builds its request/delta map off this, config.py validates the triple-screen against it.
+GRANULARITY_DELTAS = {
+    "M1": timedelta(minutes=1),
+    "M5": timedelta(minutes=5),
+    "M15": timedelta(minutes=15),
+    "H1": timedelta(hours=1),
+    "H4": timedelta(hours=4),
+    "D": timedelta(days=1),
+}
+SUPPORTED_GRANULARITIES = frozenset(GRANULARITY_DELTAS)
 
 
 class MarketDataSource(Protocol):

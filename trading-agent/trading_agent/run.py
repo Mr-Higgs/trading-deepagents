@@ -62,8 +62,12 @@ def _load_env(path: Path = Path(".env")) -> None:
         os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
 
-def _live_strategy(cfg, choice: str):
-    """Deterministic IchimokuPullback, or (agent) wrap it in the deepagents confirmation gate."""
+def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool = True):
+    """Deterministic IchimokuPullback, or (agent) wrap it in the deepagents decision layer.
+
+    `use_cache` gates the verdict cache (subject to `cfg.agents.cache`): on for backtests so re-runs are
+    deterministic/free, off for live so decisions are always fresh. `refresh` forces fresh calls (still writes).
+    """
     inner = build_strategy(cfg.strategy, cfg.pair)
     mode = cfg.agents.mode if choice == "config" else choice
     if mode != "agent":
@@ -71,22 +75,26 @@ def _live_strategy(cfg, choice: str):
     # lazy: only the agent path pulls in the deepagents/langchain stack (uv sync --group phase2)
     from trading_agent.strategy.agent_strategy import AgentStrategy
     from trading_agent.strategy.agents.orchestrator import build_orchestrator
+    from trading_agent.strategy.agents.verdict_cache import VerdictCache
 
-    return AgentStrategy(inner, build_orchestrator(cfg), cfg.pair)
+    cache = VerdictCache(enabled=True, refresh=refresh) if (use_cache and cfg.agents.cache) else None
+    return AgentStrategy(
+        inner, build_orchestrator(cfg), cfg.pair,
+        authority=cfg.agents.authority, cache=cache, orchestrator_model=cfg.agents.orchestrator_model,
+    )
 
 
 def cmd_backtest(args: argparse.Namespace) -> None:
-    if args.strategy == "agent":
-        raise SystemExit("the agent strategy is live/forward only; backtest always uses the deterministic strategy")
     from trading_agent.marketdata.oanda_client import OandaClient  # lazy: keeps CLI parsing free of the network stack
 
     cfg = load_config(args.config)
     tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
     source = HistoricalOandaSource.from_oanda(OandaClient.from_env(), cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache)
+    strategy = _make_strategy(cfg, args.strategy, refresh=args.refresh)  # agent mode is cached => re-runs stay deterministic
     run_id = f"bt-{args.start}-{args.end}"
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
     log = EventLog(log_path, run_id=run_id, strategy_version=cfg.strategy_version)
-    equity = engine.run(source, build_strategy(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair), _simulated_backend(cfg), log, cfg, starting_equity=args.equity)
+    equity = engine.run(source, strategy, RiskEngine(cfg.risk, cfg.pair), _simulated_backend(cfg), log, cfg, starting_equity=args.equity)
     log.close()
     print(f"backtest done: final equity {equity:.2f} | log {log_path}")
     print(f"render journal: uv run python -m trading_agent.journal {log_path}")
@@ -100,7 +108,7 @@ def cmd_live(args: argparse.Namespace) -> None:
     client = OandaClient.from_env()
     tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
     source = LiveOandaSource(client, cfg.pair.symbol, tfs, poll_seconds=args.poll)
-    strategy = _live_strategy(cfg, args.strategy)
+    strategy = _make_strategy(cfg, args.strategy, use_cache=False)  # live decisions are always fresh, never replayed
     run_id = f"live-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"  # wall clock is fine here (live, not a deterministic backtest)
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
     log = EventLog(log_path, run_id=run_id, strategy_version=cfg.strategy_version)
@@ -126,7 +134,8 @@ def main() -> None:
     b.add_argument("--cache", default="data/candles")
     b.add_argument("--logdir", default="data/logs")
     b.add_argument("--equity", type=float, default=10_000.0)
-    b.add_argument("--strategy", choices=["deterministic", "agent"], default="deterministic", help="'agent' is rejected: live/forward only")
+    b.add_argument("--strategy", choices=["config", "deterministic", "agent"], default="deterministic", help="'agent' runs the LLM decision layer; 'config' uses agents.yaml mode")
+    b.add_argument("--refresh", action="store_true", help="agent mode: ignore cached verdicts and call the LLM fresh (still writes)")
     b.set_defaults(func=cmd_backtest)
 
     live = sub.add_parser("live", help="poll OANDA and paper-trade (simulated fills by default)")

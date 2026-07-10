@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Play, Radio, Banknote, Square, TrendingUp, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useChatContext } from "@/providers/ChatProvider";
-import { getGateMode } from "@/lib/runPrefs";
+import { useAccountContext } from "@/providers/AccountProvider";
+import { openToTrades } from "@/app/utils/openTrades";
+import { getGateMode, getAgentOverrides } from "@/lib/runPrefs";
+import { ResearchControls, ResearchStream } from "@/app/components/ResearchViews";
+import type { AccountSummary } from "@/app/hooks/useAccount";
 import type { EquityPoint, PnlSummary, RunMeta, Trade, TradingEvent } from "@/app/utils/reduceEvents";
 
 // --- formatting -----------------------------------------------------------------------------------
@@ -26,16 +30,30 @@ function Tile({ label, value, sub, valueClass }: { label: string; value: string;
   );
 }
 
-function PnlTiles({ pnl }: { pnl: PnlSummary }) {
+// When `summary` is passed (live/idle with a real OANDA snapshot) the money tiles mirror the account —
+// NAV, live unrealized P/L, real open count. Run-scoped stats (win rate, rejected, day P/L) stay from the
+// streamed run. Without it (backtest) the tiles show the run's simulated ledger.
+function PnlTiles({ pnl, summary }: { pnl: PnlSummary; summary?: AccountSummary }) {
   const ret = pnl.equity - pnl.startingEquity;
   const retPct = pnl.startingEquity ? (ret / pnl.startingEquity) * 100 : 0;
+  const nav = summary?.NAV != null ? parseFloat(summary.NAV) : null;
+  const bal = summary?.balance != null ? parseFloat(summary.balance) : null;
+  const uPL = summary?.unrealizedPL != null ? parseFloat(summary.unrealizedPL) : null;
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      <Tile label="Equity" value={usd(pnl.equity)} sub={`start ${usd(pnl.startingEquity)}`} />
-      <Tile label="Realized P/L" value={signedUsd(pnl.realizedPnl)} sub={`${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%`} valueClass={pnlColor(pnl.realizedPnl)} />
+      {nav != null ? (
+        <Tile label="Equity (NAV)" value={usd(nav)} sub={bal != null ? `bal ${usd(bal)}` : undefined} />
+      ) : (
+        <Tile label="Equity" value={usd(pnl.equity)} sub={`start ${usd(pnl.startingEquity)}`} />
+      )}
+      {uPL != null ? (
+        <Tile label="Unrealized P/L" value={signedUsd(uPL)} valueClass={pnlColor(uPL)} />
+      ) : (
+        <Tile label="Realized P/L" value={signedUsd(pnl.realizedPnl)} sub={`${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%`} valueClass={pnlColor(pnl.realizedPnl)} />
+      )}
       <Tile label="Day P/L" value={signedUsd(pnl.dayPnl)} valueClass={pnlColor(pnl.dayPnl)} />
       <Tile label="Win rate" value={pct(pnl.winRate)} sub={`${pnl.wins}W / ${pnl.losses}L`} />
-      <Tile label="Open" value={String(pnl.openCount)} sub={`${pnl.signals} signals`} />
+      <Tile label="Open" value={String(summary?.openTradeCount ?? pnl.openCount)} sub={`${pnl.signals} signals`} />
       <Tile label="Rejected" value={String(pnl.rejected)} sub={pnl.halted ? "HALTED" : "active"} valueClass={pnl.halted ? "text-destructive" : undefined} />
     </div>
   );
@@ -90,7 +108,8 @@ function TradesTable({ trades }: { trades: Trade[] }) {
   if (!trades.length) return <div className="p-6 text-center text-sm text-muted-foreground">No trades yet.</div>;
   const rows = [...trades].reverse();
   return (
-    <div className="overflow-auto">
+    // explicit max-height so the table always scrolls internally, independent of the parent flex chain
+    <div className="max-h-[55vh] overflow-auto">
       <table className="w-full min-w-[820px] text-sm">
         <thead className="sticky top-0 bg-card text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
@@ -117,7 +136,7 @@ function TradesTable({ trades }: { trades: Trade[] }) {
               <td>{statusBadge(t)}</td>
               <td>
                 {t.verdict ? (
-                  <span className={`text-[10px] font-medium uppercase ${t.verdict.decision === "approve" ? "text-success" : "text-destructive"}`} title={t.verdict.rationale}>
+                  <span className={`text-[10px] font-medium uppercase ${t.verdict.decision === "approve" ? "text-success" : t.verdict.decision === "modify" ? "text-chart-1" : "text-destructive"}`} title={t.verdict.rationale}>
                     {t.verdict.decision} {(t.verdict.confidence * 100).toFixed(0)}%
                   </span>
                 ) : (
@@ -204,12 +223,30 @@ function ExecBadge({ meta }: { meta: RunMeta | null }) {
 }
 
 export function TradingDashboard() {
-  const { startRun, stopStream, isLoading, events, runMeta, trades, equityCurve, pnl, openPositions } = useChatContext();
+  const { startRun, stopStream, isLoading, events, runMeta, lastCheckAt, trades, equityCurve, pnl, openPositions, research, error } = useChatContext();
+  const { data: account } = useAccountContext();
+  const errMsg = error ? (error instanceof Error ? error.message : String(error)) : null;
   const version = runMeta?.strategy_version ?? events[0]?.strategy_version;
+  // A research run rides this same stream but carries no trades — show the iteration loop instead.
+  const isResearchRun = research.meta !== null || research.iterations.length > 0;
+
+  // Mirror the real OANDA account for a live run or when idle; a backtest keeps its own simulated ledger.
+  const mirror = runMeta?.mode !== "backtest";
+  const summary = mirror ? account?.summary : undefined;
+  // Real open OANDA positions (e.g. tickets opened in a prior session) merged into the run's trades,
+  // deduped by trade id — so they show as OPEN rows even when not in the current event stream.
+  const realOpen = useMemo(() => {
+    if (!mirror) return [];
+    const streamIds = new Set(trades.map((t) => t.trade_id).filter((id): id is string => !!id));
+    return openToTrades(account?.trades ?? [], undefined, streamIds);
+  }, [mirror, account?.trades, trades]);
+  const allTrades = useMemo(() => [...trades, ...realOpen], [trades, realOpen]);
+  const openCount = openPositions.length + realOpen.length;
+  const hasData = events.length > 0 || !!summary || realOpen.length > 0;
 
   const goLivePaper = () => {
     if (window.confirm("Place REAL orders on the OANDA practice (101-) account?\n\nLive signals during the London session will submit demo orders that appear in your OANDA history.")) {
-      startRun({ mode: "live", execution: "oanda", strategy: getGateMode() });
+      startRun({ mode: "live", execution: "oanda", strategy: getGateMode(), agents: getAgentOverrides(), poll: 15 });
     }
   };
 
@@ -217,23 +254,31 @@ export function TradingDashboard() {
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => startRun({ mode: "backtest" })} disabled={isLoading} className="bg-primary text-primary-foreground">
+        <Button size="sm" onClick={() => startRun({ mode: "backtest", strategy: getGateMode(), agents: getAgentOverrides() })} disabled={isLoading} className="bg-primary text-primary-foreground">
           <Play className="mr-2 h-4 w-4" /> Backtest
         </Button>
-        <Button size="sm" variant="outline" onClick={() => startRun({ mode: "live", execution: "simulated", strategy: getGateMode() })} disabled={isLoading}>
+        <Button size="sm" variant="outline" onClick={() => startRun({ mode: "live", execution: "simulated", strategy: getGateMode(), agents: getAgentOverrides(), poll: 15 })} disabled={isLoading}>
           <Radio className="mr-2 h-4 w-4" /> Go Live (sim)
         </Button>
         <Button size="sm" variant="outline" onClick={goLivePaper} disabled={isLoading} className="border-success/60 text-success hover:bg-success/10">
           <Banknote className="mr-2 h-4 w-4" /> Go Live — Paper
         </Button>
-        {isLoading && (
+        {isLoading && !isResearchRun && (
           <Button size="sm" variant="outline" onClick={stopStream}>
             <Square className="mr-2 h-4 w-4" /> Stop
           </Button>
         )}
+        <span className="mx-1 h-6 w-px shrink-0 bg-border" aria-hidden />
+        <ResearchControls
+          isLoading={isLoading}
+          active={isResearchRun && isLoading}
+          onStart={(iterations, model) => startRun({ mode: "research", iterations, model })}
+          onStop={stopStream}
+        />
         <div className="ml-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <span className={`inline-block h-2 w-2 rounded-full ${isLoading ? "animate-pulse bg-success" : "bg-muted-foreground/40"}`} />
-          {isLoading ? "streaming" : "idle"} · {events.length} events
+          <span className={`inline-block h-2 w-2 rounded-full ${errMsg ? "bg-destructive" : isLoading ? "animate-pulse bg-success" : "bg-muted-foreground/40"}`} />
+          {errMsg ? "disconnected" : isLoading ? "streaming" : "idle"} · {events.length} events
+          {isLoading && lastCheckAt && <span className="font-mono text-xs">· last check {new Date(lastCheckAt).toISOString().slice(11, 19)}Z</span>}
           {version && <span className="font-mono text-xs">· {version}</span>}
         </div>
         <div className="ml-auto">
@@ -241,20 +286,29 @@ export function TradingDashboard() {
         </div>
       </div>
 
+      {errMsg && (
+        <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1">Stream disconnected — {errMsg}. Re-run to reconnect.</span>
+        </div>
+      )}
+
       {pnl.halted && (
         <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <AlertTriangle className="h-4 w-4" /> Trading halted — {pnl.haltReason}
         </div>
       )}
 
-      {events.length === 0 ? (
+      {isResearchRun ? (
+        <ResearchStream research={research} className="max-h-[60vh]" />
+      ) : !hasData ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
           <TrendingUp className="h-8 w-8" />
-          <p className="text-sm">No run yet. Click <span className="font-medium text-foreground">Backtest</span> to stream a run, or <span className="font-medium text-foreground">Go Live</span> to poll OANDA.</p>
+          <p className="text-sm">No run yet. Click <span className="font-medium text-foreground">Backtest</span> to stream a run, <span className="font-medium text-foreground">Go Live</span> to poll OANDA, or <span className="font-medium text-foreground">Run loop</span> to sharpen the strategy.</p>
         </div>
       ) : (
         <>
-          <PnlTiles pnl={pnl} />
+          <PnlTiles pnl={pnl} summary={summary} />
           <div className="grid gap-3 lg:grid-cols-2">
             <Panel title="Equity" className="h-56">
               <EquityCurve curve={equityCurve} />
@@ -263,8 +317,8 @@ export function TradingDashboard() {
               <EventFeed events={events} />
             </Panel>
           </div>
-          <Panel title={`Trades — ${trades.length}${openPositions.length ? ` (${openPositions.length} open)` : ""}`} className="max-h-96">
-            <TradesTable trades={trades} />
+          <Panel title={`Trades — ${allTrades.length}${openCount ? ` (${openCount} open)` : ""}`} className="max-h-96">
+            <TradesTable trades={allTrades} />
           </Panel>
         </>
       )}

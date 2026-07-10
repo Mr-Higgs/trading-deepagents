@@ -7,7 +7,7 @@ rather than a giant hand-typed golden CSV.
 import numpy as np
 import pandas as pd
 
-from trading_agent.indicators import atr, ichimoku
+from trading_agent.indicators import atr, ichimoku, price_dislocation
 
 
 def _ramp(n: int) -> pd.DataFrame:
@@ -70,3 +70,15 @@ def test_atr_constant_true_range_and_warmup():
     assert pd.isna(a.iloc[12])  # NaN before the length-bar warmup
     assert a.iloc[13] == 2.0
     assert a.iloc[-1] == 2.0
+
+
+def test_price_dislocation_flags_stretch_and_flat():
+    flat = pd.DataFrame({"c": [1.0] * 30})
+    assert pd.isna(price_dislocation(flat))  # zero variance -> NaN, never a divide-by-zero
+    # 40 bars at 1.0 then a spike to 2.0: last close sits far above the window mean -> large positive z.
+    stretched = pd.DataFrame({"c": [1.0] * 40 + [2.0]})
+    z = price_dislocation(stretched, lookback=60, min_periods=20)
+    assert z > 2.0
+    # A downside spike is symmetric (negative z), and too-short history is NaN (fail-soft).
+    assert price_dislocation(pd.DataFrame({"c": [1.0] * 40 + [0.0]})) < -2.0
+    assert pd.isna(price_dislocation(pd.DataFrame({"c": [1.0] * 5})))

@@ -11,7 +11,26 @@ import type { Trade } from "@/app/utils/reduceEvents";
 
 const PANES = ["D", "H4", "H1", "M15"] as const;
 
-function Pane({ tf, trades, pollMs, onReady }: { tf: string; trades: Trade[]; pollMs: number; onReady: (tf: string, h: ChartHandle | null) => void }) {
+type PositionHandlers = {
+  onModifyPosition?: (tradeId: string, kind: "sl" | "tp", price: number) => void;
+  onClosePosition?: (tradeId: string) => void;
+};
+
+function Pane({
+  tf,
+  trades,
+  pollMs,
+  showIchimoku,
+  onReady,
+  onModifyPosition,
+  onClosePosition,
+}: {
+  tf: string;
+  trades: Trade[];
+  pollMs: number;
+  showIchimoku: boolean;
+  onReady: (tf: string, h: ChartHandle | null) => void;
+} & PositionHandlers) {
   const { data, loading, error } = useCandles(pollMs, tf);
   const candles = data?.candles ?? [];
   const handleReady = useCallback((h: ChartHandle | null) => onReady(tf, h), [tf, onReady]);
@@ -20,7 +39,7 @@ function Pane({ tf, trades, pollMs, onReady }: { tf: string; trades: Trade[]; po
       <div className="absolute left-2 top-1.5 z-10 rounded bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{tf}</div>
       <div className="min-h-0 flex-1">
         {candles.length ? (
-          <CandlestickChart candles={candles} ichimoku={data?.ichimoku} trades={trades} onReady={handleReady} />
+          <CandlestickChart candles={candles} ichimoku={data?.ichimoku} trades={trades} showIchimoku={showIchimoku} onReady={handleReady} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">{error ?? (loading ? "Loading…" : "No data")}</div>
         )}
@@ -29,7 +48,7 @@ function Pane({ tf, trades, pollMs, onReady }: { tf: string; trades: Trade[]; po
   );
 }
 
-export function MultiChart({ trades, pollMs = 45_000 }: { trades: Trade[]; pollMs?: number }) {
+export function MultiChart({ trades, pollMs = 45_000, showIchimoku = true, onModifyPosition, onClosePosition }: { trades: Trade[]; pollMs?: number; showIchimoku?: boolean } & PositionHandlers) {
   const [handles, setHandles] = useState<Record<string, ChartHandle | null>>({});
 
   const onReady = useCallback((tf: string, h: ChartHandle | null) => {
@@ -63,7 +82,7 @@ export function MultiChart({ trades, pollMs = 45_000 }: { trades: Trade[]; pollM
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-4 gap-2 md:grid-cols-2 md:grid-rows-2">
       {PANES.map((tf) => (
-        <Pane key={tf} tf={tf} trades={trades} pollMs={pollMs} onReady={onReady} />
+        <Pane key={tf} tf={tf} trades={trades} pollMs={pollMs} showIchimoku={showIchimoku} onReady={onReady} onModifyPosition={onModifyPosition} onClosePosition={onClosePosition} />
       ))}
     </div>
   );

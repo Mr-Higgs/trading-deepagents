@@ -7,7 +7,7 @@ import { ConfigDialog } from "@/app/components/ConfigDialog";
 import { Button } from "@/components/ui/button";
 import { Assistant } from "@langchain/langgraph-sdk";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
-import { Settings, MessagesSquare, SquarePen, SlidersHorizontal, Clock } from "lucide-react";
+import { Settings, MessagesSquare, SquarePen, SlidersHorizontal, Clock, FlaskConical } from "lucide-react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -20,12 +20,13 @@ import { TradingDashboard } from "@/app/components/TradingDashboard";
 import { ChartTab } from "@/app/components/ChartTab";
 import { AccountTab } from "@/app/components/AccountTab";
 import { StrategyTab } from "@/app/components/StrategyTab";
+import { BacktestLoopTab } from "@/app/components/BacktestLoopTab";
 import { RiskProfileDialog } from "@/app/components/RiskProfileDialog";
 import { SessionDialog } from "@/app/components/SessionDialog";
-import { useAccount } from "@/app/hooks/useAccount";
+import { AccountProvider, useAccountContext } from "@/providers/AccountProvider";
 
 function AccountStrip() {
-  const { data } = useAccount();
+  const { data } = useAccountContext();
   const s = data?.summary;
   if (!s) return null;
   const upl = parseFloat(s.unrealizedPL ?? "0");
@@ -128,7 +129,7 @@ function HomePageInner({
   }, [fetchAssistant]);
 
   return (
-    <>
+    <AccountProvider>
       <ConfigDialog
         open={configDialogOpen}
         onOpenChange={setConfigDialogOpen}
@@ -233,12 +234,16 @@ function HomePageInner({
                 activeAssistant={assistant}
                 onHistoryRevalidate={() => mutateThreads?.()}
               >
-                <Tabs defaultValue="live" className="flex h-full min-h-0 flex-col gap-0">
+                <Tabs defaultValue="chart" className="flex h-full min-h-0 flex-col gap-0">
                   <TabsList className="mx-4 mt-3 self-start">
                     <TabsTrigger value="live">Live</TabsTrigger>
                     <TabsTrigger value="chart">Chart</TabsTrigger>
                     <TabsTrigger value="account">Account</TabsTrigger>
                     <TabsTrigger value="strategy">Strategy</TabsTrigger>
+                    <TabsTrigger value="backtest">
+                      <FlaskConical className="mr-1.5 h-4 w-4" />
+                      Backtest
+                    </TabsTrigger>
                   </TabsList>
                   <TabsContent value="live" className="mt-0 min-h-0 flex-1">
                     <TradingDashboard />
@@ -252,13 +257,16 @@ function HomePageInner({
                   <TabsContent value="strategy" className="mt-0 min-h-0 flex-1">
                     <StrategyTab />
                   </TabsContent>
+                  <TabsContent value="backtest" className="mt-0 min-h-0 flex-1">
+                    <BacktestLoopTab />
+                  </TabsContent>
                 </Tabs>
               </ChatProvider>
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>
       </div>
-    </>
+    </AccountProvider>
   );
 }
 
