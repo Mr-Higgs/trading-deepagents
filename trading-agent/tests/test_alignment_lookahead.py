@@ -67,3 +67,13 @@ def test_stream_is_ascending_and_complete():
     times = [c.close_time for c in _source().stream()]
     assert times == sorted(times)
     assert len(times) == 400
+
+
+def test_snapshot_lookback_caps_rows_like_live_poller():
+    src = _source()
+    now = src._frames[src.entry_tf]["close_time"].iloc[-1].to_pydatetime()  # noqa: SLF001
+    full = src.snapshot(now)
+    capped = HistoricalOandaSource(src._frames, entry_tf=src.entry_tf, lookback=5).snapshot(now)  # noqa: SLF001
+    for tf, df in capped.items():
+        assert len(df) == min(5, len(full[tf]))
+        assert df["close_time"].iloc[-1] == full[tf]["close_time"].iloc[-1]
