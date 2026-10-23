@@ -7,12 +7,34 @@ is the cloud value plotted AT bar t, computed from data at `t - displacement`. S
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 
 def _mid(high: pd.Series, low: pd.Series, n: int) -> pd.Series:
     """Ichimoku midline: (highest high + lowest low) / 2 over the last n bars."""
-    return (high.rolling(n).max() + low.rolling(n).min()) / 2.0
+    return pd.Series(_mid_np(high.to_numpy(float), low.to_numpy(float), n), index=high.index)
+
+
+def _mid_np(high: np.ndarray, low: np.ndarray, n: int) -> np.ndarray:
+    """`_mid` on arrays; NaN until n bars (or any NaN in the window), like `rolling(n)`."""
+    out = np.full(len(high), np.nan)
+    if n > 0 and len(high) >= n:
+        out[n - 1 :] = (sliding_window_view(high, n).max(axis=1) + sliding_window_view(low, n).min(axis=1)) / 2.0
+    return out
+
+
+def _shift(values: np.ndarray, k: int) -> np.ndarray:
+    """`Series.shift(k)` on an array (k may be negative)."""
+    out = np.full(len(values), np.nan)
+    if k == 0:
+        out[:] = values
+    elif 0 < k < len(values):
+        out[k:] = values[:-k]
+    elif 0 < -k < len(values):
+        out[:k] = values[-k:]
+    return out
 
 
 def ichimoku(
@@ -25,6 +47,9 @@ def ichimoku(
 ) -> pd.DataFrame:
     """Compute Ichimoku lines for a candle frame.
 
+    Called once per bar per strategy in backtests, so it works on numpy arrays rather than pandas
+    rolling windows (same values, an order of magnitude less overhead).
+
     Args:
         df: candle frame with at least columns `h`, `l`, `c` (high, low, close), time-ascending.
         tenkan, kijun, senkou_b, displacement: standard Ichimoku periods.
@@ -33,15 +58,15 @@ def ichimoku(
         A frame on the same index with columns: tenkan, kijun, senkou_a, senkou_b, chikou,
         cloud_top, cloud_bottom. Leading spans are forward-shifted (lookahead-safe, see module doc).
     """
-    high, low, close = df["h"], df["l"], df["c"]
-    tenkan_s = _mid(high, low, tenkan)
-    kijun_s = _mid(high, low, kijun)
+    high, low, close = (df[c].to_numpy(float) for c in ("h", "l", "c"))
+    tenkan_s = _mid_np(high, low, tenkan)
+    kijun_s = _mid_np(high, low, kijun)
     # Leading spans plotted forward => the value AT bar t was computed at t-displacement (known at t).
-    senkou_a = ((tenkan_s + kijun_s) / 2.0).shift(displacement)
-    senkou_b_s = _mid(high, low, senkou_b).shift(displacement)
+    senkou_a = _shift((tenkan_s + kijun_s) / 2.0, displacement)
+    senkou_b_s = _shift(_mid_np(high, low, senkou_b), displacement)
     # Lagging span plotted backward: charting/journal only. It is NaN near the right edge, so it is
     # never a decision input. ponytail: kept for chart parity; the strategy must not read it.
-    chikou = close.shift(-displacement)
+    chikou = _shift(close, -displacement)
 
     out = pd.DataFrame(
         {
@@ -53,8 +78,9 @@ def ichimoku(
         },
         index=df.index,
     )
-    out["cloud_top"] = out[["senkou_a", "senkou_b"]].max(axis=1)
-    out["cloud_bottom"] = out[["senkou_a", "senkou_b"]].min(axis=1)
+    with np.errstate(invalid="ignore"):
+        out["cloud_top"] = np.fmax(senkou_a, senkou_b_s)  # NaN-skipping, like DataFrame.max(axis=1)
+        out["cloud_bottom"] = np.fmin(senkou_a, senkou_b_s)
     return out
 
 
