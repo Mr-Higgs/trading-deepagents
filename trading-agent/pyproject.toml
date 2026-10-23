@@ -12,6 +12,9 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
+optimize = [
+    "optuna>=4.0,<5",
+]
 # ponytail: deepagents (+ its langchain/langgraph stack) is deferred to this group so a Phase-1
 # `uv sync` stays lean. Phase 2 wires it in via `uv sync --group phase2`. Editable source below.
 # langchain-anthropic: init_chat_model("anthropic:...") + ANTHROPIC_API_KEY. httpx: analyst data tools.
