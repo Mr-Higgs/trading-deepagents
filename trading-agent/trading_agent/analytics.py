@@ -24,9 +24,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from trading_agent import metrics as rm
 from trading_agent.journal import _build_trades, _load
 
 _TERMINAL = {"EXIT", "PARTIAL_EXIT"}
+_REALIZED = {*_TERMINAL, "FINANCING"}  # everything that moves realized equity
 
 
 def _trade_pnls_and_closed(records: list[dict[str, Any]]) -> tuple[dict[str, float], set[str]]:
@@ -37,7 +39,7 @@ def _trade_pnls_and_closed(records: list[dict[str, Any]]) -> tuple[dict[str, flo
     total: dict[str, float] = defaultdict(float)
     closed: set[str] = set()
     for r in records:
-        if r.get("type") not in _TERMINAL:
+        if r.get("type") not in _REALIZED:
             continue
         tid = r.get("trade_id")
         if not tid:
@@ -55,7 +57,7 @@ def _max_drawdown(records: list[dict[str, Any]], starting_equity: float) -> floa
     equity = peak = starting_equity
     max_dd = 0.0
     for r in records:
-        if r.get("type") in _TERMINAL and r.get("pnl") is not None:
+        if r.get("type") in _REALIZED and r.get("pnl") is not None:
             equity += float(r["pnl"])
             peak = max(peak, equity)
             max_dd = max(max_dd, peak - equity)
@@ -160,9 +162,32 @@ def analyze(log_path: str | Path, candles_path: str | Path | None = None, starti
         "by_hour": _bucket_stats(trades, "hour"),
         "skips": dict(Counter(r.get("reason", "?") for r in records if r.get("type") in {"SKIP", "REJECT", "HALT"}).most_common()),
     }
+    metrics.update(_risk_adjusted(records, starting_equity, r_mults))
     if candles_path is not None:
-        metrics["excursions"] = _excursions(trades, candles_path)
+        ex = _excursions(trades, candles_path)
+        metrics["excursions"] = ex
+        metrics["mfe_capture"] = metrics["avg_win_R"] / ex["win_mfe"] if ex.get("win_mfe") else 0.0
+        mae_all = abs(ex.get("win_mae", 0.0)) + abs(ex.get("loss_mae", 0.0))
+        metrics["mfe_mae_ratio"] = (ex.get("win_mfe", 0.0) + ex.get("loss_mfe", 0.0)) / mae_all if mae_all else 0.0
     return metrics
+
+
+def realized_events(records: list[dict[str, Any]]) -> list[tuple[datetime, float]]:
+    return [(datetime.fromisoformat(r["ts"]), float(r["pnl"])) for r in records if r.get("type") in _REALIZED and r.get("pnl") is not None]
+
+
+def _risk_adjusted(records: list[dict[str, Any]], starting_equity: float, r_mults: list[float]) -> dict[str, float]:
+    """Sharpe / Sortino / MAR on daily realized returns, plus average R and total financing."""
+    rets = rm.daily_returns(realized_events(records), starting_equity)
+    return {
+        "sharpe": rm.sharpe(rets),
+        "sortino": rm.sortino(rets),
+        "max_drawdown_pct": rm.max_drawdown_pct(rets),
+        "cagr": rm.cagr(rets),
+        "mar": rm.mar(rets),
+        "avg_R": sum(r_mults) / len(r_mults) if r_mults else 0.0,
+        "financing_pnl": sum(float(r.get("pnl") or 0.0) for r in records if r.get("type") == "FINANCING"),
+    }
 
 
 def _hour(ts: str | None) -> str:
@@ -197,6 +222,12 @@ def to_markdown(m: dict[str, Any]) -> str:
         f"| total P/L | {m['total_pnl']:.2f} |",
         f"| max drawdown | {m['max_drawdown']:.2f} |",
         f"| P/L ÷ drawdown | {m['pnl_over_dd']:.2f} |",
+        f"| Sharpe (daily, ann.) | {m.get('sharpe', 0.0):.2f} |",
+        f"| Sortino | {m.get('sortino', 0.0):.2f} |",
+        f"| max drawdown % | {m.get('max_drawdown_pct', 0.0):.1%} |",
+        f"| MAR (CAGR ÷ max DD) | {m.get('mar', 0.0):.2f} |",
+        f"| avg R | {m.get('avg_R', 0.0):.2f} |",
+        f"| financing P/L | {m.get('financing_pnl', 0.0):.2f} |",
         "",
     ]
     if "excursions" in m:
@@ -208,6 +239,8 @@ def to_markdown(m: dict[str, Any]) -> str:
             "|---|--:|--:|",
             f"| winners | {e['win_mae']:.2f} | {e['win_mfe']:.2f} |",
             f"| losers | {e['loss_mae']:.2f} | {e['loss_mfe']:.2f} |",
+            "",
+            f"MFE capture (avg win R ÷ winner MFE): {m.get('mfe_capture', 0.0):.2f} · MFE/MAE ratio: {m.get('mfe_mae_ratio', 0.0):.2f}",
             "",
         ]
     body = [

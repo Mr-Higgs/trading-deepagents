@@ -8,12 +8,26 @@ min_rr: 2.0                     # reject signals whose reward/risk is below this
 max_daily_loss_pct: 0.03        # halt the day if realized loss breaches this
 trading_day_reset_utc: "21:00"  # broker rollover = day boundary for counts/loss (NOT UTC midnight)
 kill_switch: false              # flip true to block all new entries immediately
-news_windows: []                # [{start: <iso>, end: <iso>, reason: str}] — manual for v1
+news_windows: []                # [{start: <iso>, end: <iso>, reason: str}] — manual extras; auto ones below
+news_auto:                      # blackouts auto-built from the stored calendar (missing file => none)
+  enabled: true
+  calendar: data/calendar/economic_calendar.csv   # columns: time,currency,impact,title[,forecast,previous,actual,published]
+  minutes_before: 30
+  minutes_after: 30
+  impacts: [High]
+leverage: 50                    # margin check: notional/leverage must fit in equity*max_margin_usage (null => off)
+max_margin_usage: 1.0
 
 execution:
   backend: simulated            # "simulated" (default) | "oanda" (paper account, built last)
-  sim_spread_pips: 1.2
+  sim_spread_pips: 1.2           # baseline spread (flat/profile models) and legacy flat cost
   sim_slippage_pips: 0.3
+  price_mode: bidask            # legacy (flat cost once at entry, mid exits) | bidask (side-correct) | mid (bidask fills from mid +/- modeled spread)
+  spread_model: profile         # flat | profile (rollover/Tokyo/weekend widening) | fitted (spread_table JSON from `python -m trading_agent.costs fit`)
+  spread_table: null            # e.g. ../data/costs/AUD_USD_spread.json (relative to config/)
+  stop_slippage_pips: 0.5       # extra adverse slippage on stop fills
+  widening: {rollover_mult: 3.0, tokyo_open_mult: 1.5, weekend_open_mult: 4.0}
+  financing: true               # rollover swap from config/financing.yaml
 
 management:                     # in-trade stop management (defaults off => hold to stop/TP)
   breakeven_enabled: true       # move stop to breakeven once in profit, then trail

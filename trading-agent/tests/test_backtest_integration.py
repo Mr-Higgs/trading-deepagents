@@ -8,6 +8,7 @@ elsewhere). Two identical runs must produce byte-identical JSONL.
 from __future__ import annotations
 
 from collections.abc import Iterator
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -77,7 +78,6 @@ class _StubStrategy:
 
 def _cfg() -> AppConfig:
     session = SessionConfig(timezone="Europe/London", start=datetime(2000, 1, 1, 7, 0).time(), end=datetime(2000, 1, 1, 16, 0).time(), weekdays=frozenset({0, 1, 2, 3, 4}))
-    from trading_agent.config import StrategyConfig  # local import keeps the fixture self-contained
 
     from conftest import make_strategy
 
@@ -142,3 +142,20 @@ def test_determinism_byte_identical(tmp_path):
     _run(a)
     _run(b)
     assert a.read_bytes() == b.read_bytes()
+
+
+def test_cost_modes_differ_on_same_fixture_bars(tmp_path):
+    """Synthetic fixture bars only: switching the cost model changes the result (and is deterministic)."""
+    from trading_agent.backtest_setup import build_simulated_backend
+    from trading_agent.cost_compare import with_cost_mode
+
+    cfg = _cfg()
+    results = {}
+    for mode in ("old", "new"):
+        c = with_cost_mode(cfg, mode)
+        log = EventLog(tmp_path / f"{mode}.jsonl", run_id=mode, strategy_version="test")
+        results[mode] = engine.run(_FakeSource(_BARS), _StubStrategy(), RiskEngine(c.risk, c.pair), build_simulated_backend(c), log, c, starting_equity=10_000.0)
+        log.close()
+    assert results["new"] != results["old"]
+    fills = [json.loads(line) for line in (tmp_path / "new.jsonl").read_text().splitlines() if '"FILL"' in line]
+    assert fills, "fixture should produce at least one fill"

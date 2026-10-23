@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from trading_agent import engine
+from trading_agent.backtest_setup import build_simulated_backend, with_news_windows
 from trading_agent.config import load_config
 from trading_agent.eventlog import EventLog
 from trading_agent.execution.simulated import SimulatedBackend
@@ -24,8 +25,7 @@ def _utc_day(s: str) -> datetime:
 
 
 def _simulated_backend(cfg) -> SimulatedBackend:
-    ex = cfg.risk.execution
-    return SimulatedBackend(cfg.pair.pip_size, ex.sim_spread_pips, ex.sim_slippage_pips)
+    return build_simulated_backend(cfg)
 
 
 def _make_backend(cfg, override: str | None = None):
@@ -62,7 +62,7 @@ def _load_env(path: Path = Path(".env")) -> None:
         os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
 
-def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool = True):
+def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool = True, point_in_time: bool = False):
     """Deterministic IchimokuPullback, or (agent) wrap it in the deepagents decision layer.
 
     `use_cache` gates the verdict cache (subject to `cfg.agents.cache`): on for backtests so re-runs are
@@ -81,16 +81,18 @@ def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool =
     return AgentStrategy(
         inner, build_orchestrator(cfg), cfg.pair,
         authority=cfg.agents.authority, cache=cache, orchestrator_model=cfg.agents.orchestrator_model,
+        point_in_time=point_in_time,
     )
 
 
 def cmd_backtest(args: argparse.Namespace) -> None:
     from trading_agent.marketdata.oanda_client import OandaClient  # lazy: keeps CLI parsing free of the network stack
 
-    cfg = load_config(args.config)
+    cfg = with_news_windows(load_config(args.config))
     tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
-    source = HistoricalOandaSource.from_oanda(OandaClient.from_env(), cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache)
-    strategy = _make_strategy(cfg, args.strategy, refresh=args.refresh)  # agent mode is cached => re-runs stay deterministic
+    price = "BA" if cfg.risk.execution.price_mode == "bidask" else "M"
+    source = HistoricalOandaSource.from_oanda(OandaClient.from_env(), cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache, price=price)
+    strategy = _make_strategy(cfg, args.strategy, refresh=args.refresh, point_in_time=True)  # agent mode is cached => re-runs stay deterministic
     run_id = f"bt-{args.start}-{args.end}"
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
     log = EventLog(log_path, run_id=run_id, strategy_version=cfg.strategy_version)

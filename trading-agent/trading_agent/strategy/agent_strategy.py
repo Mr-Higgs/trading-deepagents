@@ -41,8 +41,13 @@ class AgentStrategy:
         authority: str = "gate",
         cache: VerdictCache | None = None,
         orchestrator_model: str = "",
+        *,
+        point_in_time: bool = False,
     ) -> None:
+        """`point_in_time=True` (backtests) pins every analyst tool call to the bar timestamp."""
         self.inner = inner
+        self.point_in_time = point_in_time
+        self._now: datetime | None = None
         self.orchestrator = orchestrator
         self.pair = pair
         self.authority = authority
@@ -55,6 +60,7 @@ class AgentStrategy:
         if res.signal is None:
             return res  # no deterministic candidate -> nothing to decide on; don't spend tokens
 
+        self._now = now
         signal = self._annotate_dislocation(res.signal, snapshot)  # AQR Opportunistic-Macro context
         verdict = self._gate(signal)
         if verdict is None:
@@ -95,7 +101,13 @@ class AgentStrategy:
             if cached is not None:
                 return _coerce(cached)  # replay a prior decision: deterministic, zero tokens
         try:
-            result = self.orchestrator.invoke({"messages": [{"role": "user", "content": prompt}]})
+            if self.point_in_time and self._now is not None:
+                from trading_agent.strategy.agents.tools import backtest_clock
+
+                with backtest_clock(self._now):
+                    result = self.orchestrator.invoke({"messages": [{"role": "user", "content": prompt}]})
+            else:
+                result = self.orchestrator.invoke({"messages": [{"role": "user", "content": prompt}]})
         except Exception:  # noqa: BLE001 - any orchestrator/LLM/network failure -> veto (no trade)
             return None
         v = _coerce(result.get("structured_response") if isinstance(result, dict) else None)

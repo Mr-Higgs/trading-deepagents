@@ -51,6 +51,20 @@ def _apply_exit(
     return equity
 
 
+def _apply_financing(ev: TradeEvent, equity: float, log: EventLog, now) -> float:
+    """Swap accrues into equity (and the log) but not the day's realized trading P/L."""
+    if ev.pnl is None:
+        return equity
+    log.write("FINANCING", ts=now, reason="rollover", trade_id=ev.trade_id, units=ev.units, pnl=ev.pnl, rollover=ev.ts.isoformat())
+    return equity + ev.pnl
+
+
+def _margin_used(backend: ExecutionBackend, risk: RiskEngine, now) -> float:
+    if not risk.risk.leverage or not hasattr(backend, "open_positions"):
+        return 0.0
+    return sum(abs(p.remaining_units or p.units) * risk.margin_per_unit(p.entry, now) for p in backend.open_positions())
+
+
 def _signal_rr(sig) -> float:
     risk = abs(sig.entry_ref - sig.stop)
     if risk <= 0:
@@ -88,6 +102,8 @@ def run(
         for ev in backend.reconcile(now, bar):
             if ev.kind == "FILL":
                 log.write("FILL", ts=now, reason="fill", trade_id=ev.trade_id, price=ev.price, units=ev.units)
+            elif ev.kind == "FINANCING":
+                equity = _apply_financing(ev, equity, log, now)
             else:  # EXIT
                 equity = _apply_exit(ev, equity, day, cfg, log, now)
 
@@ -121,7 +137,7 @@ def run(
         log.write("SIGNAL", ts=now, **payload)
 
         # 4. risk gate + sizing
-        acct = AccountState(equity=equity, balance=equity, open_positions=len(backend.open_trades()))
+        acct = AccountState(equity=equity, balance=equity, open_positions=len(backend.open_trades()), margin_used=_margin_used(backend, risk, now))
         dec = risk.evaluate(sig, acct, day, now)
         if not dec.approved:
             log.write("REJECT", ts=now, reason=dec.reason, signal_id=sig.signal_id)
