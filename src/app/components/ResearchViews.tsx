@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Square, Repeat, CheckCircle2, XCircle, MinusCircle, Loader2, FlaskConical } from "lucide-react";
+import { Square, Repeat, CheckCircle2, XCircle, MinusCircle, Loader2, FlaskConical, FileJson } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { IterMetrics, Iteration, ResearchState } from "@/app/utils/reduceResearch";
 
@@ -56,6 +56,7 @@ export function ResearchControls({ isLoading, active, onStart, onStop }: { isLoa
 function StatusBadge({ status }: { status: Iteration["status"] }) {
   const map = {
     running: { cls: "border-chart-1/50 text-chart-1", icon: <Loader2 className="h-3 w-3 animate-spin" />, label: "running" },
+    proposed: { cls: "border-primary/50 text-primary", icon: <FileJson className="h-3 w-3" />, label: "proposed" },
     kept: { cls: "border-success/50 text-success", icon: <CheckCircle2 className="h-3 w-3" />, label: "kept" },
     reverted: { cls: "border-muted-foreground/40 text-muted-foreground", icon: <XCircle className="h-3 w-3" />, label: "reverted" },
     skipped: { cls: "border-warning/50 text-warning", icon: <MinusCircle className="h-3 w-3" />, label: "skipped" },
@@ -104,7 +105,7 @@ function IterationCard({ it }: { it: Iteration }) {
       {it.status === "running" && (
         <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          {it.phase === "evaluating" ? "Running the deterministic in-sample & out-of-sample gate…" : "Agent is proposing a change and probing it with backtests…"}
+          {it.phase === "evaluating" ? "Running the deterministic in-sample & out-of-sample gate…" : "Agent is probing in-sample and drafting a search space…"}
         </p>
       )}
       {it.hypothesis && <p className="mt-2 text-sm font-medium text-foreground">{it.hypothesis}</p>}
@@ -135,12 +136,28 @@ function BaselineCard({ meta }: { meta: NonNullable<ResearchState["meta"]> }) {
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Baseline — the bar to beat</div>
         <div className="font-mono text-xs text-muted-foreground">{meta.model}</div>
       </div>
-      <div className="mt-2"><MetricPair label="expectancy" is={meta.baseline_is.expectancy} oos={meta.baseline_oos.expectancy} /></div>
-      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-        <span>IS {meta.is_range[0]} → {meta.is_range[1]}</span>
-        <span>OOS {meta.oos_range[0]} → {meta.oos_range[1]}</span>
-        <span>keep if OOS &gt; 0 and ≥ 60% of IS and ≥ 30 trades</span>
-      </div>
+      {meta.baseline_oos && meta.oos_range ? (
+        <>
+          <div className="mt-2"><MetricPair label="expectancy" is={meta.baseline_is.expectancy} oos={meta.baseline_oos.expectancy} /></div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+            <span>IS {meta.is_range[0]} → {meta.is_range[1]}</span>
+            <span>OOS {meta.oos_range[0]} → {meta.oos_range[1]}</span>
+            <span>keep if OOS &gt; 0 and ≥ 60% of IS and ≥ 30 trades</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mt-2 flex items-baseline gap-2 font-mono text-sm tabular-nums">
+            <span className="w-16 text-xs uppercase tracking-wide text-muted-foreground">expectancy</span>
+            <span className="text-muted-foreground">IS</span>
+            <span className={expColor(meta.baseline_is.expectancy)}>{signedUsd(meta.baseline_is.expectancy)}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+            <span>IS {meta.is_range[0]} → {meta.is_range[1]}</span>
+            <span>proposes search spaces only — selection runs walk-forward in optimize.run</span>
+          </div>
+        </>
+      )}
       <p className="mt-2 text-[11px] text-muted-foreground">Changes are sandboxed to a config copy — your live trading config and git history are untouched. Run the CLI to adopt a winning config for real.</p>
     </div>
   );
@@ -163,14 +180,14 @@ export function ResearchStream({ research, className }: { research: ResearchStat
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
           <Loader2 className="h-8 w-8 animate-spin" />
-          <p className="text-sm">Warming up — running baseline in-sample &amp; out-of-sample backtests…</p>
+          <p className="text-sm">Warming up — running the baseline in-sample backtest…</p>
         </div>
       );
     }
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
         <FlaskConical className="h-8 w-8" />
-        <p className="max-w-md text-center text-sm">No loop yet. Click <span className="font-medium text-foreground">Run loop</span> to watch the agent propose one change per round, backtest it in-sample &amp; out-of-sample, and keep only what survives.</p>
+        <p className="max-w-md text-center text-sm">No loop yet. Click <span className="font-medium text-foreground">Run loop</span> to watch the agent probe in-sample and propose one search space per round for the walk-forward optimizer.</p>
       </div>
     );
   }
@@ -190,8 +207,17 @@ export function ResearchStream({ research, className }: { research: ResearchStat
         ))}
         {done && (
           <div className="rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm">
-            <span className="font-semibold">Loop finished.</span> {done.accepted}/{done.iterations} changes accepted · final best OOS expectancy{" "}
-            <span className={`font-mono font-semibold ${expColor(done.best_oos)}`}>{signedUsd(done.best_oos)}</span>
+            <span className="font-semibold">Loop finished.</span>{" "}
+            {done.proposed != null ? (
+              <>{done.proposed}/{done.iterations} search spaces proposed · run them through <span className="font-mono">optimize.run</span></>
+            ) : (
+              <>
+                {done.accepted ?? 0}/{done.iterations} changes accepted
+                {typeof done.best_oos === "number" && (
+                  <> · final best OOS expectancy <span className={`font-mono font-semibold ${expColor(done.best_oos)}`}>{signedUsd(done.best_oos)}</span></>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

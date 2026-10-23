@@ -112,6 +112,24 @@ class SimulatedBackend:
             for tid, t in self._open.items()
         ]
 
+    def liquidate(self, reason: str = "END_OF_WINDOW") -> list[TradeEvent]:
+        """Close every open trade at the last reconciled bar's close on its executable side.
+
+        Used at evaluation-window boundaries so a fold's P/L includes the exposure it ends with.
+        """
+        bar, now = self._last_bar, self._last_ts
+        if bar is None or now is None:
+            return []
+        events: list[TradeEvent] = []
+        bid, ask = self.sides(bar) if self._model is not None else (None, None)
+        for tid, t in list(self._open.items()):
+            side = bid if t.units > 0 else ask
+            price = side.c if side is not None else bar.c
+            events.append(TradeEvent(now, tid, "EXIT", price, t.units, pnl=self._pnl(t.units, price, t.entry, now), exit_reason=reason))
+            del self._open[tid]
+        self._pending.clear()
+        return events
+
     def modify_stop(self, trade_id: str, new_stop: float) -> None:
         t = self._open.get(trade_id)
         if t is not None:

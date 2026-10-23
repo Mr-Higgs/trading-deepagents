@@ -1,7 +1,6 @@
-"""research_loop deterministic backbone: the OOS keep/revert gate + comment-preserving YAML writes.
+"""research_loop deterministic backbone: search-space proposals for optimize/ + comment-preserving YAML writes.
 
-The LLM proposer is not exercised here (that needs the network); these are the pure pieces that own
-the verdict and persist accepted changes."""
+The LLM proposer is stubbed (no network). The loop must never select on an out-of-sample window."""
 
 from __future__ import annotations
 
@@ -9,29 +8,31 @@ import json
 import shutil
 import types
 
+import pytest
+
 import trading_agent.research_loop as R
 from trading_agent.config import load_config
-from trading_agent.research_loop import apply_to_yaml, verdict
+from trading_agent.research_loop import apply_to_yaml, save_proposal
 
 
-def test_verdict_keeps_profitable_not_overfit() -> None:
-    keep, _ = verdict({"expectancy": 50.0}, {"expectancy": 35.0, "trades": 40})
-    assert keep  # 35 > 0, 35 >= 0.6*50=30, 40 >= 30
+def test_save_proposal_validates_and_persists(tmp_path) -> None:
+    space = '[{"name": "rr", "kind": "float", "low": 1.5, "high": 3.0, "step": 0.25}, {"name": "trail_mode", "kind": "cat", "choices": ["off", "kijun"]}]'
+    path = save_proposal(tmp_path, 2, strategy="ichimoku_breakout", hypothesis="h", space_json=space, rationale="r")
+    from optimize.space import load_space
+
+    assert path.name == "iter-002.json" and [p.name for p in load_space(path)] == ["rr", "trail_mode"]
 
 
-def test_verdict_rejects_overfit() -> None:
-    keep, _ = verdict({"expectancy": 50.0}, {"expectancy": 20.0, "trades": 40})
-    assert not keep  # 20 < 0.6*50 => in-sample-only gain
+def test_save_proposal_rejects_risk_params(tmp_path) -> None:
+    with pytest.raises(ValueError, match="not tunable"):
+        save_proposal(tmp_path, 1, strategy="s", hypothesis="h", space_json='[{"name": "risk_pct", "kind": "float", "low": 0.5, "high": 2}]', rationale="r")
 
 
-def test_verdict_rejects_small_sample() -> None:
-    keep, _ = verdict({"expectancy": 50.0}, {"expectancy": 40.0, "trades": 10})
-    assert not keep  # not enough OOS trades
+def test_no_out_of_sample_selection_surface() -> None:
+    import inspect
 
-
-def test_verdict_rejects_unprofitable_oos() -> None:
-    keep, _ = verdict({"expectancy": -20.0}, {"expectancy": -5.0, "trades": 90})
-    assert not keep  # OOS still negative
+    src = inspect.getsource(R.loop)
+    assert "verdict(" not in src and "evaluate(" not in src and "OOS_RANGE" not in src  # legacy shims unused
 
 
 def test_apply_to_yaml_preserves_comments(tmp_path) -> None:
@@ -59,55 +60,50 @@ def test_apply_to_yaml_ignores_disallowed_keys(tmp_path) -> None:
     assert before.split("setup:")[0].count("\n") == (cfg_dir / "strategy_v1.yaml").read_text().split("setup:")[0].count("\n")
 
 
-def test_loop_streams_events_and_compounds(monkeypatch, tmp_path) -> None:
-    """The loop emits RESEARCH_META -> ITER_START/ITER_RESULT -> RESEARCH_END and keeps a profitable OOS change.
-
-    Stubs the LLM proposer, the backtests, and the store/DB so only the streaming + verdict + compounding logic runs."""
+def test_loop_streams_events_and_saves_search_spaces(monkeypatch, tmp_path) -> None:
+    """RESEARCH_META -> ITER_START/ITER_RESULT -> RESEARCH_END; a proposal becomes a saved search space and
+    only in-sample backtests run (stubbed proposer/backtests/store)."""
     emitted: list[dict] = []
+    ranges: list[tuple[str, str]] = []
     monkeypatch.setattr(R, "_emit", lambda payload: emitted.append(payload))
-    monkeypatch.setattr(R, "_RUNS_DIR", tmp_path / "runs")  # per-run artifacts land in tmp, not real data/
+    monkeypatch.setattr(R, "_RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(R, "_seed_files", lambda: None)
     monkeypatch.setattr(R, "_write_report", lambda cfg: None)
     monkeypatch.setattr(R, "_journal", lambda entry: None)
-    monkeypatch.setattr(R, "apply_to_yaml", lambda cfg, ov, ver: None)
     monkeypatch.setattr(R, "_load_env", lambda: None)
-    for fn in ("record_run", "record_iteration", "record_strategy", "finish_run"):  # don't touch the real trading.db
+    for fn in ("record_run", "record_iteration", "record_strategy", "finish_run"):
         monkeypatch.setattr(R.store, fn, lambda *a, **k: None)
     monkeypatch.setattr(R, "load_config", lambda cfg: types.SimpleNamespace(strategy=types.SimpleNamespace(version="v1", name="ichimoku_pullback")))
-    src_cfg = tmp_path / "config"  # real dir so the commit=False sandbox copytree + strategy snapshot read work
+    src_cfg = tmp_path / "config"
     src_cfg.mkdir()
     (src_cfg / "strategy_v1.yaml").write_text("name: ichimoku_pullback\nversion: v1\n")
 
     def fake_run_backtest(ov, start, end, **kw):
-        base = {"trades": 90, "expectancy": -20.0, "win_rate": 0.5, "profit_factor": 0.3, "avg_win_R": 0.4, "avg_loss_R": -1.1, "total_pnl": -1800.0, "max_drawdown": 1800.0}
-        if ov.get("stop_rule") == "cloud":  # the "good" proposal: profitable OOS
-            base = {**base, "expectancy": 12.0, "profit_factor": 1.4, "total_pnl": 1080.0}
-        return base
+        ranges.append((start, end))
+        return {"trades": 90, "expectancy": -20.0, "win_rate": 0.5, "profit_factor": 0.3, "avg_win_R": 0.4, "avg_loss_R": -1.1, "total_pnl": -1800.0, "max_drawdown": 1800.0}
 
     monkeypatch.setattr(R, "run_backtest", fake_run_backtest)
-
-    proposal = types.SimpleNamespace(hypothesis="tighten stop to the cloud", overrides_json='{"stop_rule": "cloud"}', rationale="losers run to -1.1R")
+    space = '[{"name": "stop_rule", "kind": "cat", "choices": ["cloud", "kijun"]}, {"name": "rr", "kind": "float", "low": 1.5, "high": 3.0}]'
+    proposal = types.SimpleNamespace(hypothesis="cloud stops cut -1.1R losers", space_json=space, rationale="losers run to -1.1R")
     fake_agent = types.SimpleNamespace(invoke=lambda _messages: {"structured_response": proposal})
-    monkeypatch.setattr(R, "_build_agent", lambda model: (fake_agent, lambda: None))  # (agent, reset_probes)
+    monkeypatch.setattr(R, "_build_agent", lambda model: (fake_agent, lambda: None))
 
     R.loop(iterations=1, model="stub", config_dir=str(src_cfg), commit=False)
 
-    types_seen = [e["type"] for e in emitted]
-    # keep-warm PROGRESS/BACKTEST heartbeats interleave; the core research sequence must still be in order.
-    core = [t for t in types_seen if t in {"RESEARCH_META", "ITER_START", "ITER_RESULT", "RESEARCH_END"}]
-    assert core == ["RESEARCH_META", "ITER_START", "ITER_RESULT", "RESEARCH_END"], types_seen
-    assert "PROGRESS" in types_seen  # baseline + per-iteration heartbeats keep the custom stream warm
+    core = [e["type"] for e in emitted if e["type"] in {"RESEARCH_META", "ITER_START", "ITER_RESULT", "RESEARCH_END"}]
+    assert core == ["RESEARCH_META", "ITER_START", "ITER_RESULT", "RESEARCH_END"]
     result = next(e for e in emitted if e["type"] == "ITER_RESULT")
-    assert result["status"] == "kept", result  # -20 baseline OOS -> +12 passes the gate and beats best
-    assert result["overrides"] == {"stop_rule": "cloud"}
-    assert emitted[-1]["type"] == "RESEARCH_END" and emitted[-1]["best_oos"] == 12.0  # last event; compounded to the new best
-    assert all("run_id" in e for e in emitted)  # every custom event carries run_id (UI guard requires it)
+    assert result["status"] == "proposed"
+    assert set(ranges) == {R.IS_RANGE}  # never touched any other window
+    assert all("run_id" in e for e in emitted)
+    rd = next((tmp_path / "runs").glob("research-*"))
+    assert json.loads((rd / "meta.json").read_text())["summary"] == {"proposed": 1, "iterations": 1}
+    assert json.loads((rd / "search_spaces" / "iter-001.json").read_text())["hypothesis"] == proposal.hypothesis
 
-    # persistence: the run left durable artifacts under its per-run dir (no more discard).
-    run_dirs = list((tmp_path / "runs").glob("research-*"))
-    assert len(run_dirs) == 1, run_dirs
-    rd = run_dirs[0]
-    assert json.loads((rd / "meta.json").read_text())["summary"] == {"accepted": 1, "iterations": 1, "best_oos": 12.0}
-    logged = [json.loads(x) for x in (rd / "iterations.jsonl").read_text().splitlines() if x.strip()]
-    assert len(logged) == 1 and logged[0]["status"] == "kept"
-    assert (rd / "strategies" / "v1+r1.yaml").exists()  # accepted variant snapshot (base v1 + round 1)
+
+def test_legacy_verdict_still_importable_but_deprecated():
+    import pytest
+
+    with pytest.warns(DeprecationWarning):
+        keep, _ = R.verdict({"expectancy": 10.0}, {"expectancy": 8.0, "trades": 40})
+    assert keep

@@ -109,3 +109,27 @@ def test_scale_out_rejected_when_bid_never_reached_level():
     assert b.reduce_position("t1", 500, 0.6750, t1) is None
     ev = b.reduce_position("t1", 500, 0.6740, t1)
     assert ev is not None and ev.price == pytest.approx(0.67395)
+
+
+def test_liquidate_closes_open_trades_at_executable_close():
+    b = _backend()
+    b.submit(_order(1000, 0.6680, 0.6800))
+    b.reconcile(T0, _ba_bar(0.6700, 0.6702, 0.6699, 0.6710))
+    (ev,) = b.liquidate()
+    assert ev.exit_reason == "END_OF_WINDOW" and ev.price == pytest.approx(0.6709)  # bid close
+    assert b.open_trades() == [] and b.liquidate() == []
+
+
+def test_boundary_liquidation_log_is_analyzable(tmp_path):
+    from optimize.evaluate import _close_at_boundary
+    from trading_agent.analytics import analyze
+    from trading_agent.eventlog import EventLog
+
+    b = _backend()
+    b.submit(_order(1000, 0.6680, 0.6800))
+    b.reconcile(T0, _ba_bar(0.6700, 0.6702, 0.6699, 0.6710))
+    path = tmp_path / "log.jsonl"
+    log = EventLog(path, run_id="t", strategy_version="v")
+    _close_at_boundary(b, log)
+    log.close()
+    assert analyze(path, starting_equity=10_000.0)["trades"] == 1

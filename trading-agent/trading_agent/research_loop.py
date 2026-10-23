@@ -1,21 +1,14 @@
-"""Ralph-style backtest research loop — the model reasons, code owns the verdict.
+"""Ralph-style research loop — the model proposes HYPOTHESES and SEARCH SPACES; `optimize/` judges them.
 
-Adapts examples/ralph_mode (fresh context each iteration, the filesystem + git as memory) to strategy
-R&D. Each iteration a fresh deep-agent reads the latest analysis + journal + hypotheses, proposes ONE
-strategy-config change, and may probe it with a read-only `backtest` tool. Then DETERMINISTIC code —
-not the model — runs the change in-sample AND out-of-sample and applies the keep/revert gate:
+Each iteration a fresh deep-agent reads the latest in-sample analysis + journal + hypotheses backlog,
+may probe ideas with an IN-SAMPLE-ONLY `backtest` tool, and returns a hypothesis plus a bounded search
+space (`optimize.space` JSON). The loop validates and saves it under the run directory; it no longer
+edits config or keeps/reverts on an out-of-sample window. Repeatedly selecting on one OOS window is
+itself a fit to that window, so selection now lives only in the walk-forward optimizer:
 
-    keep iff  oos.expectancy > 0  AND  oos.expectancy >= 0.6 * is.expectancy  AND  oos.trades >= 30
-
-A kept change must also beat the current best OOS expectancy (hill-climb). Accepted changes are written
-into config/strategy_v1.yaml, journaled, and git-committed for later review; rejected ones are journaled
-(a killed hypothesis is still data). The loop never touches live money — it only edits config + backtests.
-
-The out-of-sample gate is the anti-overfit spine: an LLM tuning against one window would otherwise just
-curve-fit. Nothing here can raise the OOS bar — it's plain Python the loop runs after the model proposes.
+    uv run --group optimize python -m optimize.run --pair AUD_USD --strategy breakout --space <saved.json>
 
     uv run python -m trading_agent.research_loop --iterations 10
-    uv run python -m trading_agent.research_loop --iterations 5 --model anthropic:claude-opus-4-8
 """
 
 from __future__ import annotations
@@ -27,6 +20,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,14 +40,15 @@ _RUN_DIR = RESEARCH_DIR  # per-run output dir; loop() points it at _RUNS_DIR/<ru
 _DEFAULT_CONFIG = str(_ROOT / "config")
 _DEFAULT_CACHE = str(_ROOT / "data" / "candles")
 _DEFAULT_LOGDIR = str(_ROOT / "data" / "logs")
-IS_RANGE = ("2025-01-01", "2026-01-01")   # in-sample: tune here
-OOS_RANGE = ("2026-03-01", "2026-07-01")  # out-of-sample holdout: the change must survive here
-KEEP_OOS_FRACTION = 0.6
-MIN_OOS_TRADES = 30
-# Cap the agent's `backtest` tool calls per iteration. Each call runs a full IS+OOS backtest (~2 min, the
+IS_RANGE = ("2025-01-01", "2026-01-01")   # exploration window for probes; never used to accept a change
+# Cap the agent's `backtest` tool calls per iteration. Each call runs a full in-sample backtest (~2 min, the
 # IS year is the slow part), so an unbounded agent can burn 20-30 min/iteration. 3 probes is enough to
 # compare a couple of candidates against the baseline; after that the tool refuses and forces a proposal.
 MAX_PROBES_PER_ITER = 3
+# Legacy keep/revert gate constants, kept only for the deprecated `verdict`/`evaluate` helpers below.
+OOS_RANGE = ("2026-03-01", "2026-07-01")
+KEEP_OOS_FRACTION = 0.6
+MIN_OOS_TRADES = 30
 
 
 def _emit(payload: dict) -> None:
@@ -137,8 +132,26 @@ def run_backtest(overrides: dict, start: str, end: str, config_dir: str = _DEFAU
         Path(tmp).unlink(missing_ok=True)
 
 
+def save_proposal(run_dir: Path, iteration: int, *, strategy: str, hypothesis: str, space_json: str, rationale: str) -> Path:
+    """Validate a proposed search space against `optimize.space` and persist it for `optimize.run --space`."""
+    from optimize.space import space_from_json, space_to_json
+
+    items = json.loads(space_json)
+    space = space_from_json(items["space"] if isinstance(items, dict) else items)  # raises on untunable/invalid params
+    out = run_dir / "search_spaces" / f"iter-{iteration:03d}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"strategy": strategy, "hypothesis": hypothesis, "rationale": rationale, "space": space_to_json(space)}, indent=2))
+    return out
+
+
 def verdict(is_m: dict, oos_m: dict) -> tuple[bool, str]:
-    """The keep/revert gate. Pure: keep iff OOS is profitable, not badly overfit vs IS, and has samples."""
+    """Legacy keep/revert gate (keep iff OOS is profitable, not badly overfit vs IS, and has samples).
+
+    !!! warning
+        Deprecated: repeatedly selecting on one OOS window leaks it into the strategy. `loop` no longer
+        calls this; use `optimize.run` (walk-forward) for selection.
+    """
+    warnings.warn("research_loop.verdict is deprecated; select configs with optimize.run", DeprecationWarning, stacklevel=2)
     keep = oos_m["expectancy"] > 0 and oos_m["expectancy"] >= KEEP_OOS_FRACTION * is_m["expectancy"] and oos_m["trades"] >= MIN_OOS_TRADES
     reason = (
         f"OOS expectancy {oos_m['expectancy']:.2f} (need >0 and >= {KEEP_OOS_FRACTION}*IS {is_m['expectancy']:.2f}"
@@ -148,9 +161,17 @@ def verdict(is_m: dict, oos_m: dict) -> tuple[bool, str]:
 
 
 def evaluate(overrides: dict, config_dir: str = _DEFAULT_CONFIG) -> tuple[dict, dict, bool, str]:
+    """Legacy IS + OOS backtest and `verdict`.
+
+    !!! warning
+        Deprecated for the same reason as `verdict`; kept so existing imports keep working.
+    """
+    warnings.warn("research_loop.evaluate is deprecated; select configs with optimize.run", DeprecationWarning, stacklevel=2)
     is_m = run_backtest(overrides, *IS_RANGE, config_dir=config_dir)
     oos_m = run_backtest(overrides, *OOS_RANGE, config_dir=config_dir)
-    keep, reason = verdict(is_m, oos_m)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        keep, reason = verdict(is_m, oos_m)
     return is_m, oos_m, keep, reason
 
 
@@ -218,7 +239,7 @@ def _seed_files() -> None:
         hp.write_text(_HYPOTHESES_SEED)
     jp = _RUN_DIR / "journal.md"  # per-run journal (fresh header each run)
     if not jp.exists():
-        jp.write_text("# Research journal\n\nOne entry per iteration: the change tried, IS/OOS metrics, and the verdict.\n")
+        jp.write_text("# Research journal\n\nOne entry per iteration: the hypothesis and the search space handed to optimize/.\n")
 
 
 def _write_report(is_m_config_dir: str) -> None:
@@ -247,12 +268,10 @@ def _brief(m: dict) -> dict:
 
 _SYSTEM_PROMPT = (
     "You are a systematic-trading research assistant sharpening a deterministic Ichimoku + candlestick "
-    "forex strategy on OANDA AUD/USD. Each call you propose ONE change to the strategy config and test "
-    "whether it improves EXPECTANCY (average $ per trade) — not win rate, which is gameable. You do not "
-    "touch live money; you edit config and backtest. A separate deterministic gate decides keep/revert on "
-    "an out-of-sample window, so propose changes with a real thesis, not curve-fits. Use the `backtest` "
-    "tool to probe an idea (it reports in-sample AND out-of-sample metrics) before you commit to a proposal. "
-    "Change ONE thing per iteration so the effect is attributable. "
+    "forex strategy on OANDA AUD/USD. Each iteration you propose ONE hypothesis and a small, bounded SEARCH "
+    "SPACE (2-5 parameters with sensible ranges) that a walk-forward optimizer will test out-of-sample with "
+    "overfitting controls (deflated Sharpe, PBO). You never pick final values and never see out-of-sample "
+    "data. The `backtest` tool reports IN-SAMPLE metrics only; use it to sanity-check that the idea trades. "
     f"BUDGET: you may call `backtest` at most {MAX_PROBES_PER_ITER} times per iteration — each call is expensive. "
     "Probe your one or two best candidates, then submit the Proposal; the tool refuses once the budget is spent."
 )
@@ -271,6 +290,14 @@ _ALLOWED_HELP = (
 )
 
 
+_SPACE_HELP = (
+    "\nSearch-space params (kinds: float/int with low/high/step, cat with choices, bool): any key above plus "
+    "trade management: breakeven_enabled, breakeven_trigger_r, breakeven_trigger_pips, breakeven_buffer_pips, "
+    "trail_mode (off|kijun|pips), trail_buffer_pips, trail_distance_pips, partial_exit_pct (0 disables scale-out). "
+    "Risk sizing and kill-switch limits are fixed and will be rejected.\n"
+)
+
+
 def _build_agent(model: str, max_probes: int = MAX_PROBES_PER_ITER):
     """Return (agent, reset_probes). Call reset_probes() before each iteration to refresh the backtest budget."""
     from deepagents import create_deep_agent
@@ -282,7 +309,7 @@ def _build_agent(model: str, max_probes: int = MAX_PROBES_PER_ITER):
 
     @tool(parse_docstring=True)
     def backtest(overrides_json: str) -> str:
-        """Backtest the base strategy config plus your overrides, in-sample AND out-of-sample.
+        """Backtest the base strategy config plus your overrides, IN-SAMPLE only (exploration, not selection).
 
         Args:
             overrides_json: a JSON object of strategy-config overrides, e.g. {"rr": 2.0, "stop_rule": "cloud"}. Use {} for the baseline.
@@ -299,19 +326,15 @@ def _build_agent(model: str, max_probes: int = MAX_PROBES_PER_ITER):
         print(f"  probe {probes['n']}/{max_probes}: {list(ov)}", flush=True)
         ignored = [k for k in ov if k not in _ALLOWED]
         try:
-            is_m, oos_m, keep, reason = evaluate(_clean_overrides(ov))
+            is_m = run_backtest(_clean_overrides(ov), *IS_RANGE)
         except Exception as e:  # noqa: BLE001 - surface the failure to the model, don't crash the loop
             return f"backtest failed: {e}"
-        return json.dumps({
-            "in_sample": _brief(is_m), "out_of_sample": _brief(oos_m),
-            "would_keep": keep, "gate": reason, "ignored_keys": ignored,
-            "probes_left": max_probes - probes["n"],
-        })
+        return json.dumps({"in_sample": _brief(is_m), "ignored_keys": ignored, "probes_left": max_probes - probes["n"]})
 
     class Proposal(BaseModel):
         hypothesis: str = Field(description="the edge idea this change tests, in one sentence")
-        overrides_json: str = Field(description='JSON object of strategy-config overrides to adopt, e.g. {"rr": 2.0}')
-        rationale: str = Field(description="why, citing specific numbers from the report or your backtest probes")
+        space_json: str = Field(description='JSON list of params, e.g. [{"name": "rr", "kind": "float", "low": 1.5, "high": 3.0, "step": 0.25}, {"name": "trail_mode", "kind": "cat", "choices": ["off", "kijun"]}]')
+        rationale: str = Field(description="why, citing specific numbers from the in-sample report or your probes")
 
     agent = create_deep_agent(model=init_chat_model(model), tools=[backtest], system_prompt=_SYSTEM_PROMPT, response_format=Proposal)
 
@@ -325,20 +348,19 @@ def _read(p: Path) -> str:
     return p.read_text() if p.exists() else ""  # context files are optional — a missing one shouldn't crash the run
 
 
-def _iteration_prompt(iteration: int, total: int, best_oos: float) -> str:
+def _iteration_prompt(iteration: int, total: int) -> str:
     report = _read(_RUN_DIR / "report.md")
     journal = _read(_RUN_DIR / "journal.md")[-4000:]  # recent tail only
     hypotheses = _read(RESEARCH_DIR / "HYPOTHESES.md")
     return (
         f"## Research iteration {iteration}/{total}\n\n"
-        f"Current best out-of-sample expectancy to beat: {best_oos:.2f} $/trade.\n\n"
         f"### Latest analysis of the committed config (in-sample)\n{report}\n\n"
         f"### Hypotheses backlog\n{hypotheses}\n\n"
         f"### Journal (recent)\n{journal}\n\n"
         f"### Your task\n"
         f"Pick ONE hypothesis (or a better one you infer from the report — e.g. the by-hour, by-exit-reason, "
-        f"or MAE/MFE breakdowns). Probe it with the `backtest` tool, then return a Proposal with the overrides "
-        f"to adopt. Aim to raise out-of-sample expectancy above {best_oos:.2f}.\n\n{_ALLOWED_HELP}"
+        f"or MAE/MFE breakdowns). Optionally probe it in-sample with `backtest`, then return a Proposal with a "
+        f"bounded search space for the walk-forward optimizer.\n\n{_ALLOWED_HELP}{_SPACE_HELP}"
     )
 
 
@@ -378,97 +400,53 @@ def loop(iterations: int, model: str, config_dir: str = _DEFAULT_CONFIG, commit:
         )
 
     print(f"research loop: {iterations} iterations, model={model}", flush=True)
-    print(f"  in-sample {IS_RANGE[0]}..{IS_RANGE[1]}  |  out-of-sample {OOS_RANGE[0]}..{OOS_RANGE[1]}", flush=True)
-    meta = {"run_id": run_id, "kind": "research", "strategy_version": base_version, "name": cfg0.strategy.name, "model": model, "commit": commit, "started_at": started_at, "is_range": list(IS_RANGE), "oos_range": list(OOS_RANGE)}
+    print(f"  in-sample probes {IS_RANGE[0]}..{IS_RANGE[1]} | selection happens in optimize/ (walk-forward)", flush=True)
+    meta = {"run_id": run_id, "kind": "research", "strategy_version": base_version, "name": cfg0.strategy.name, "model": model, "commit": commit, "started_at": started_at, "is_range": list(IS_RANGE)}
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     store.record_run(run_id, kind="research", strategy_version=base_version, mode="research", model=model, started_at=started_at)
-    emit("PROGRESS", phase="baseline")  # early signal: the two baseline backtests below run silent for ~2-3 min before RESEARCH_META
+    emit("PROGRESS", phase="baseline")
     base_is = run_backtest({}, *IS_RANGE, config_dir=config_dir)
-    base_oos = run_backtest({}, *OOS_RANGE, config_dir=config_dir)
-    best_oos = base_oos["expectancy"]
     _write_report(config_dir)
-    print(f"  baseline: IS expectancy {base_is['expectancy']:.2f} | OOS expectancy {best_oos:.2f} (this is the bar)", flush=True)
-    emit(
-        "RESEARCH_META", iterations=iterations, model=model, commit=commit,
-        is_range=list(IS_RANGE), oos_range=list(OOS_RANGE),
-        baseline_is=_brief(base_is), baseline_oos=_brief(base_oos), best_oos=round(best_oos, 2),
-    )
+    print(f"  baseline: IS expectancy {base_is['expectancy']:.2f}", flush=True)
+    emit("RESEARCH_META", iterations=iterations, model=model, commit=commit, is_range=list(IS_RANGE), baseline_is=_brief(base_is))
 
     agent, reset_probes = _build_agent(model)
-    accepted = 0
+    proposed = 0
     for i in range(1, iterations + 1):
-        print(f"\n=== iteration {i}/{iterations} (best OOS expectancy {best_oos:.2f}) ===", flush=True)
-        emit("ITER_START", iteration=i, total=iterations, best_oos=round(best_oos, 2))
-        reset_probes()  # fresh backtest budget each iteration
-        emit("PROGRESS", iteration=i, phase="reasoning")  # agent.invoke can run minutes; its probe backtests emit their own BACKTEST heartbeats
+        print(f"\n=== iteration {i}/{iterations} ===", flush=True)
+        emit("ITER_START", iteration=i, total=iterations)
+        reset_probes()
+        emit("PROGRESS", iteration=i, phase="reasoning")
         try:
-            result = agent.invoke({"messages": [{"role": "user", "content": _iteration_prompt(i, iterations, best_oos)}]})
+            result = agent.invoke({"messages": [{"role": "user", "content": _iteration_prompt(i, iterations)}]})
         except Exception as e:  # noqa: BLE001 - a runaway/failed agent step shouldn't kill the whole run
             print(f"  agent error: {e}; skipping", flush=True)
             _journal(f"## Iteration {i}\n- agent error: {e}")
-            record_iter(i, status="skipped", note=f"agent error: {e}", best_oos=round(best_oos, 2))
+            record_iter(i, status="skipped", note=f"agent error: {e}")
             continue
         proposal = result.get("structured_response")
         if proposal is None:
-            print("  no proposal returned; skipping", flush=True)
             _journal(f"## Iteration {i}\n- no proposal returned")
-            record_iter(i, status="skipped", note="no proposal returned", best_oos=round(best_oos, 2))
+            record_iter(i, status="skipped", note="no proposal returned")
             continue
         try:
-            overrides = _clean_overrides(json.loads(proposal.overrides_json) or {})
-        except json.JSONDecodeError:
-            print(f"  unparseable overrides_json: {proposal.overrides_json!r}", flush=True)
-            _journal(f"## Iteration {i}\n- unparseable overrides: {proposal.overrides_json!r}")
-            record_iter(i, status="skipped", note="unparseable overrides", hypothesis=proposal.hypothesis, best_oos=round(best_oos, 2))
+            path = save_proposal(run_dir, i, strategy=cfg0.strategy.name, hypothesis=proposal.hypothesis, space_json=proposal.space_json, rationale=proposal.rationale)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            _journal(f"## Iteration {i}\n- {proposal.hypothesis}\n- invalid search space: {e}")
+            record_iter(i, status="skipped", note=f"invalid search space: {e}", hypothesis=proposal.hypothesis)
             continue
-        if not overrides:
-            print("  empty/all-ignored overrides; skipping", flush=True)
-            _journal(f"## Iteration {i}\n- {proposal.hypothesis}\n- empty or disallowed overrides: {proposal.overrides_json!r}")
-            record_iter(i, status="skipped", note="empty or disallowed overrides", hypothesis=proposal.hypothesis, best_oos=round(best_oos, 2))
-            continue
+        proposed += 1
+        cmd = f"uv run --group optimize python -m optimize.run --strategy {cfg0.strategy.name} --space {path}"
+        _journal(f"## Iteration {i}\n- **hypothesis:** {proposal.hypothesis}\n- **rationale:** {proposal.rationale}\n- **search space:** `{path}`\n- next: `{cmd}`")
+        print(f"  proposed -> {path}", flush=True)
+        record_iter(i, status="proposed", hypothesis=proposal.hypothesis, rationale=proposal.rationale, overrides={"space_file": str(path)})
 
-        emit("PROGRESS", iteration=i, phase="evaluating")  # two more backtests (IS+OOS) run silent below
-        is_m, oos_m, keep, reason = evaluate(overrides, config_dir=config_dir)
-        improved = oos_m["expectancy"] > best_oos
-        print(f"  proposal {overrides}", flush=True)
-        print(f"  IS expectancy {is_m['expectancy']:.2f} | OOS expectancy {oos_m['expectancy']:.2f} | keep={keep} improved={improved}", flush=True)
-
-        header = f"## Iteration {i}\n- **hypothesis:** {proposal.hypothesis}\n- **overrides:** `{json.dumps(overrides)}`\n- **rationale:** {proposal.rationale}\n- IS: {json.dumps(_brief(is_m))}\n- OOS: {json.dumps(_brief(oos_m))}\n- gate: {reason}"
-        kept = keep and improved
-        version = f"{base_version}+r{i}" if kept else None
-        if kept:
-            accepted += 1
-            best_oos = oos_m["expectancy"]
-            apply_to_yaml(config_dir, overrides, version)
-            _write_report(config_dir)
-            _journal(header + f"\n- **VERDICT: KEEP** (new best OOS expectancy {best_oos:.2f}, version {version})")
-            # Versioned strategy library: snapshot the accepted config + index it, so tuned variants accrue
-            # instead of overwriting one file.
-            snap_dir = run_dir / "strategies"
-            snap_dir.mkdir(exist_ok=True)
-            yaml_text = (Path(config_dir) / "strategy_v1.yaml").read_text()
-            (snap_dir / f"{version}.yaml").write_text(yaml_text)
-            store.record_strategy(version, name=load_config(config_dir).strategy.name, config_yaml=yaml_text, oos_expectancy=oos_m["expectancy"], source_run_id=run_id, created_at=started_at)
-            if commit:
-                _git_commit(i, best_oos, proposal.rationale)
-            print(f"  KEPT -> config updated to {version}{', committed' if commit else ' (no commit)'}", flush=True)
-        else:
-            why = "OOS gate failed" if not keep else "did not beat current best OOS"
-            _journal(header + f"\n- **VERDICT: REVERT** ({why})")
-            print(f"  reverted ({why})", flush=True)
-        record_iter(
-            i, status="kept" if kept else "reverted",
-            hypothesis=proposal.hypothesis, rationale=proposal.rationale, overrides=overrides,
-            is_metrics=_brief(is_m), oos_metrics=_brief(oos_m), keep=keep, improved=improved,
-            gate=reason, best_oos=round(best_oos, 2), version=version,
-        )
-
-    summary = {"accepted": accepted, "iterations": iterations, "best_oos": round(best_oos, 2)}
+    summary = {"proposed": proposed, "iterations": iterations}
     finished_at = datetime.now(timezone.utc).isoformat()
     (run_dir / "meta.json").write_text(json.dumps({**meta, "finished_at": finished_at, "summary": summary}, indent=2))
     store.finish_run(run_id, summary, finished_at=finished_at)
-    print(f"\ndone: {accepted}/{iterations} changes accepted. Final best OOS expectancy {best_oos:.2f}. Saved to {run_dir} + data/trading.db (python -m trading_agent.store runs)", flush=True)
-    emit("RESEARCH_END", accepted=accepted, iterations=iterations, best_oos=round(best_oos, 2))
+    print(f"\ndone: {proposed}/{iterations} search spaces proposed under {run_dir / 'search_spaces'}; run them through optimize.run", flush=True)
+    emit("RESEARCH_END", proposed=proposed, iterations=iterations)
 
 
 def main() -> None:
