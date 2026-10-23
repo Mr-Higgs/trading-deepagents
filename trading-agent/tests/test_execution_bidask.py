@@ -87,3 +87,25 @@ def test_financing_and_fx_conversion():
         SimulatedBackend(PIP, 0, 0, quote_ccy="JPY", account_ccy="USD")
     jpy = SimulatedBackend(PIP, 0, 0, fx=FxConverter(static={"USD_JPY": 100.0}), quote_ccy="JPY", account_ccy="USD")
     assert jpy.to_account(1000.0, T0) == pytest.approx(10.0)
+
+
+def test_no_rollover_swap_on_trade_stopped_inside_the_bar():
+    fin = FinancingModel(rates={"AUD_USD": PairFinancing(-0.0365, -0.0365)})
+    b = _backend(financing=fin)
+    t_fill = datetime(2025, 1, 7, 20, 30, tzinfo=UTC)
+    b.submit(_order(1000, 0.6680, 0.6740))
+    b.reconcile(t_fill, _ba_bar(0.6700, 0.6702, 0.6699, 0.6701, t=t_fill))
+    t_roll = datetime(2025, 1, 7, 21, 0, tzinfo=UTC)  # bar closing at rollover hits the stop
+    events = b.reconcile(t_roll, _ba_bar(0.6700, 0.6701, 0.6670, 0.6675, t=t_roll - STEP))
+    assert [e.kind for e in events] == ["EXIT"]
+
+
+def test_scale_out_rejected_when_bid_never_reached_level():
+    b = _backend()
+    b.submit(_order(1000, 0.6680, 0.6800))
+    b.reconcile(T0, _ba_bar(0.6700, 0.6702, 0.6699, 0.6701))
+    t1 = T0 + STEP
+    b.reconcile(t1, _ba_bar(0.6701, 0.6750, 0.6700, 0.6740, spread=0.0010, t=t1))  # bid high 0.6745
+    assert b.reduce_position("t1", 500, 0.6750, t1) is None
+    ev = b.reduce_position("t1", 500, 0.6740, t1)
+    assert ev is not None and ev.price == pytest.approx(0.67395)

@@ -95,7 +95,8 @@ class AgentStrategy:
 
     def _gate(self, signal: Signal) -> Verdict | None:
         prompt = self._prompt(signal, self.authority)
-        key = key_for(prompt, self.orchestrator_model, PROMPT_VERSION) if self.cache is not None else None
+        version = f"{PROMPT_VERSION}+pit" if self.point_in_time else PROMPT_VERSION  # PIT verdicts never replay live-data ones
+        key = key_for(prompt, self.orchestrator_model, version) if self.cache is not None else None
         if key is not None:
             cached = self.cache.get(key)
             if cached is not None:

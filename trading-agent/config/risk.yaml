@@ -23,8 +23,8 @@ execution:
   sim_spread_pips: 1.2           # baseline spread (flat/profile models) and legacy flat cost
   sim_slippage_pips: 0.3
   price_mode: bidask            # legacy (flat cost once at entry, mid exits) | bidask (side-correct) | mid (bidask fills from mid +/- modeled spread)
-  spread_model: profile         # flat | profile (rollover/Tokyo/weekend widening) | fitted (spread_table JSON from `python -m trading_agent.costs fit`)
-  spread_table: null            # e.g. ../data/costs/AUD_USD_spread.json (relative to config/)
+  spread_model: fitted          # flat | profile (rollover/Tokyo/weekend widening) | fitted (spread_table JSON from `python -m trading_agent.costs fit`)
+  spread_table: costs/AUD_USD_spread.json  # fitted on pre-holdout (<2026-07-01) BA M5 bars; relative to config/
   stop_slippage_pips: 0.5       # extra adverse slippage on stop fills
   widening: {rollover_mult: 3.0, tokyo_open_mult: 1.5, weekend_open_mult: 4.0}
   financing: true               # rollover swap from config/financing.yaml

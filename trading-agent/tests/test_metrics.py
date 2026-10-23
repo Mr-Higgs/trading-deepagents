@@ -46,3 +46,12 @@ def test_analyze_reports_new_metrics_and_financing(tmp_path):
     assert out["avg_R"] == pytest.approx(1.98)
     for k in ("sharpe", "sortino", "max_drawdown_pct", "mar"):
         assert k in out
+
+
+def test_daily_returns_span_run_bounds():
+    from datetime import date
+
+    ev = [(datetime(2025, 1, 8, 12, tzinfo=timezone.utc), 100.0)]
+    rets = m.daily_returns(ev, 10_000.0, start=date(2025, 1, 6), end=date(2025, 1, 10))
+    assert rets == [0.0, 0.0, 0.01, 0.0, 0.0]
+    assert m.daily_returns([], 10_000.0, start=date(2025, 1, 6), end=date(2025, 1, 7)) == [0.0, 0.0]

@@ -14,14 +14,24 @@ from datetime import date, datetime, timedelta
 TRADING_DAYS = 252
 
 
-def daily_returns(events: Iterable[tuple[datetime, float]], starting_equity: float) -> list[float]:
-    """Simple daily returns from (timestamp, pnl) realizations."""
+def daily_returns(
+    events: Iterable[tuple[datetime, float]], starting_equity: float, *, start: date | None = None, end: date | None = None
+) -> list[float]:
+    """Simple daily returns from (timestamp, pnl) realizations.
+
+    Args:
+        events: `(timestamp, pnl)` realizations.
+        starting_equity: Equity before the first day.
+        start: First day of the run (inclusive); defaults to the first realization, so pass it to count idle lead-in days.
+        end: Last day of the run (inclusive); defaults to the last realization.
+    """
     by_day: dict[date, float] = defaultdict(float)
     for ts, pnl in events:
         by_day[ts.date()] += pnl
-    if not by_day:
+    if not by_day and (start is None or end is None):
         return []
-    first, last = min(by_day), max(by_day)
+    first = min([*by_day, start]) if start else min(by_day)
+    last = max([*by_day, end]) if end else max(by_day)
     equity, out = starting_equity, []
     d = first
     while d <= last:
