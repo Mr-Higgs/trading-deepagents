@@ -89,11 +89,17 @@ def plateau_pick(space: Space, trials: list[tuple[dict[str, Any], float]], *, ra
     return trials[best][0], trials[best][1], plateau[best]
 
 
+def fold_budgets(trials: int, n_folds: int) -> list[int]:
+    """Split `trials` across folds exactly (earlier folds take the remainder), at least one per fold."""
+    base, extra = divmod(max(trials, n_folds), n_folds)
+    return [base + (i < extra) for i in range(n_folds)]
+
+
 def run_walk_forward(evaluator: Evaluator, base: AppConfig, space: Space, folds: list[Fold], settings: Settings) -> WalkForwardResult:
     import optuna
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    per_fold = max(1, settings.trials // len(folds))
+    budget = fold_budgets(settings.trials, len(folds))
     results: list[FoldResult] = []
     trial_sharpes: list[float] = []
     for i, fold in enumerate(folds):
@@ -109,7 +115,7 @@ def run_walk_forward(evaluator: Evaluator, base: AppConfig, space: Space, folds:
             return value
 
         study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=settings.seed + i))
-        study.optimize(objective, n_trials=per_fold)
+        study.optimize(objective, n_trials=budget[i])
         trial_sharpes.extend(per_period_sharpe(d) for d in daily)
         params, own, plateau = plateau_pick(space, rows, radius=settings.radius, min_neighbors=settings.min_neighbors)
         oos = evaluator.run(apply_params(base, params), fold.test_start, fold.test_end)
@@ -118,6 +124,6 @@ def run_walk_forward(evaluator: Evaluator, base: AppConfig, space: Space, folds:
         results,
         [r for f in results for r in f.oos.daily],
         [p for f in results for p in f.oos.trade_pnls],
-        per_fold * len(folds),
+        sum(budget),
         trial_sharpes,
     )

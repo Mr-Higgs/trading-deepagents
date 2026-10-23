@@ -29,7 +29,10 @@ def test_save_proposal_rejects_risk_params(tmp_path) -> None:
 
 
 def test_no_out_of_sample_selection_surface() -> None:
-    assert not hasattr(R, "OOS_RANGE") and not hasattr(R, "verdict") and not hasattr(R, "evaluate")
+    import inspect
+
+    src = inspect.getsource(R.loop)
+    assert "verdict(" not in src and "evaluate(" not in src and "OOS_RANGE" not in src  # legacy shims unused
 
 
 def test_apply_to_yaml_preserves_comments(tmp_path) -> None:
@@ -96,3 +99,11 @@ def test_loop_streams_events_and_saves_search_spaces(monkeypatch, tmp_path) -> N
     rd = next((tmp_path / "runs").glob("research-*"))
     assert json.loads((rd / "meta.json").read_text())["summary"] == {"proposed": 1, "iterations": 1}
     assert json.loads((rd / "search_spaces" / "iter-001.json").read_text())["hypothesis"] == proposal.hypothesis
+
+
+def test_legacy_verdict_still_importable_but_deprecated():
+    import pytest
+
+    with pytest.warns(DeprecationWarning):
+        keep, _ = R.verdict({"expectancy": 10.0}, {"expectancy": 8.0, "trades": 40})
+    assert keep

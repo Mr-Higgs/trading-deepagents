@@ -184,3 +184,33 @@ def test_walk_forward_end_to_end_on_fixture(tmp_path) -> None:
     payload = to_payload(res, meta={"pair": "AUD_USD", "strategy": "ichimoku_breakout", "start": "2026-03-01", "end": "2026-06-01", "holdout_start": "2026-07-01", "anchored": False, "train_months": 1, "test_months": 1}, settings=settings)
     assert json.loads(json.dumps(payload, default=str))["summary"]["n_trials"] == 4
     assert "Concatenated out-of-sample" in to_markdown(payload)
+
+
+# ---------------------------------------------------------------- review fixes
+def test_fold_budgets_spend_exact_trial_count() -> None:
+    from optimize.study import fold_budgets
+
+    assert fold_budgets(200, 6) == [34, 34, 33, 33, 33, 33]
+    assert sum(fold_budgets(7, 3)) == 7 and fold_budgets(2, 3) == [1, 1, 1]
+
+
+def test_trailing_partial_test_window_is_scored() -> None:
+    folds = make_folds(D("2024-01-01"), D("2025-05-15"), train_months=12, test_months=3)
+    assert folds[-1].test_start == D("2025-04-01") and folds[-1].test_end == D("2025-05-15")
+
+
+def test_pbo_undefined_when_all_trials_tie() -> None:
+    flat = [[0.001 * ((i % 3) - 1) for i in range(64)]] * 5
+    assert math.isnan(pbo_cscv(flat, n_splits=8))
+
+
+def test_weekend_financing_stays_in_window_ending_monday() -> None:
+    days = weekdays(D("2025-01-06"), D("2025-01-13"))  # window ends (exclusive) on Monday 13th
+    recs = [{"type": "FINANCING", "ts": "2025-01-11T21:00:00+00:00", "pnl": -10.0}]
+    out = daily_series(recs, days, 10_000.0)
+    assert out[-1] == pytest.approx(-0.001)  # booked on Friday, not dropped
+
+
+def test_breakeven_pip_trigger_can_be_disabled_in_default_space() -> None:
+    names = {p.name: p for p in DEFAULT_SPACES["ichimoku_breakout"]}
+    assert 0.0 in names["breakeven_trigger_pips"].choices

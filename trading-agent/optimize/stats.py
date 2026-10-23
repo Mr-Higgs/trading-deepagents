@@ -72,7 +72,8 @@ def pbo_cscv(matrix: Sequence[Sequence[float]], *, n_splits: int = 16, metric: C
         metric: performance statistic per block-set.
 
     Returns:
-        Fraction of splits where the in-sample winner ranks at or below the out-of-sample median.
+        Fraction of splits where the in-sample winner ranks below the out-of-sample median (midranks for ties,
+        exact-median counts half); `nan` when no split has a distinguishable in-sample winner.
     """
     if n_splits % 2 or n_splits < 2:  # noqa: PLR2004
         msg = "n_splits must be even and >= 2"
@@ -88,12 +89,18 @@ def pbo_cscv(matrix: Sequence[Sequence[float]], *, n_splits: int = 16, metric: C
         oos_idx = [i for i in range(n_splits) if i not in is_idx]
         is_perf = [metric([row[t] for b in is_idx for t in blocks[b]]) for row in matrix]
         oos_perf = [metric([row[t] for b in oos_idx for t in blocks[b]]) for row in matrix]
-        best = max(range(n_trials), key=lambda k: is_perf[k])
-        rank = sum(1 for v in oos_perf if v < oos_perf[best]) + 1  # 1 = worst
-        w = rank / (n_trials + 1)
-        below += math.log(w / (1 - w)) <= 0
+        top = max(is_perf)
+        winners = [k for k in range(n_trials) if is_perf[k] == top]
+        if len(winners) == n_trials:  # every trial ties in-sample: no selection happened in this split
+            continue
+        for best in winners:  # tied IS winners share the split's weight
+            less = sum(1 for v in oos_perf if v < oos_perf[best])
+            equal = sum(1 for v in oos_perf if v == oos_perf[best])
+            w = (less + (equal + 1) / 2) / (n_trials + 1)  # midrank, 1 = worst
+            logit = math.log(w / (1 - w))
+            below += (1.0 if logit < 0 else 0.5 if logit == 0 else 0.0) / len(winners)
         total += 1
-    return below / total
+    return below / total if total else float("nan")
 
 
 def bootstrap_ci(values: Sequence[float], stat: Callable[[Sequence[float]], float], *, n: int = 2000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float]:

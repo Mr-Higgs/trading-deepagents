@@ -19,16 +19,17 @@ export type ResearchMeta = {
   model: string;
   commit: boolean;
   is_range: [string, string];
-  oos_range: [string, string];
   baseline_is: IterMetrics;
-  baseline_oos: IterMetrics;
-  best_oos: number;
+  // Legacy OOS-gated runs only; proposal-only runs (selection moved to optimize/) omit these.
+  oos_range?: [string, string];
+  baseline_oos?: IterMetrics;
+  best_oos?: number;
 };
 
 export type Iteration = {
   iteration: number;
   total?: number;
-  status: "running" | "kept" | "reverted" | "skipped";
+  status: "running" | "proposed" | "kept" | "reverted" | "skipped";
   phase?: string; // "reasoning" | "evaluating" — sub-step of a running iteration (from PROGRESS events)
   hypothesis?: string;
   rationale?: string;
@@ -46,7 +47,7 @@ export type Iteration = {
 export type ResearchState = {
   meta: ResearchMeta | null;
   iterations: Iteration[];
-  done: { accepted: number; iterations: number; best_oos: number } | null;
+  done: { proposed?: number; accepted?: number; iterations: number; best_oos?: number } | null;
   phase: string | null; // top-level phase before the first iteration, e.g. "baseline" (warming up)
 };
 
@@ -64,11 +65,16 @@ export function reduceResearch(events: ReadonlyArray<ResearchEvent>): ResearchSt
         meta = e as unknown as ResearchMeta;
         break;
       case "RESEARCH_END":
-        done = { accepted: Number(e.accepted), iterations: Number(e.iterations), best_oos: Number(e.best_oos) };
+        done = {
+          iterations: Number(e.iterations),
+          ...(e.proposed != null ? { proposed: Number(e.proposed) } : {}),
+          ...(e.accepted != null ? { accepted: Number(e.accepted) } : {}),
+          ...(e.best_oos != null ? { best_oos: Number(e.best_oos) } : {}),
+        };
         break;
       case "ITER_START": {
         const n = Number(e.iteration);
-        byIter.set(n, { ...(byIter.get(n) ?? {}), iteration: n, total: Number(e.total), status: "running", best_oos: Number(e.best_oos) });
+        byIter.set(n, { ...(byIter.get(n) ?? {}), iteration: n, total: Number(e.total), status: "running", ...(e.best_oos != null ? { best_oos: Number(e.best_oos) } : {}) });
         break;
       }
       case "ITER_RESULT": {

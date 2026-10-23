@@ -52,6 +52,7 @@ Space = tuple[Param, ...]
 
 _MANAGEMENT_SPACE: Space = (
     Param("breakeven_enabled", "bool"),
+    Param("breakeven_trigger_pips", "cat", choices=(0.0, 5.0, 10.0, 15.0)),  # > 0 overrides the R trigger
     Param("breakeven_trigger_r", "float", 0.5, 2.5, 0.25),
     Param("trail_mode", "cat", choices=("off", "kijun", "pips")),
     Param("trail_distance_pips", "float", 5.0, 30.0, 2.5),

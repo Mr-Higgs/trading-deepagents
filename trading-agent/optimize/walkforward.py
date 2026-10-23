@@ -36,6 +36,8 @@ def guard_holdout(end: datetime) -> None:
 def make_folds(start: datetime, end: datetime, *, train_months: int = 12, test_months: int = 3, anchored: bool = False) -> list[Fold]:
     """Rolling (or anchored) train/test folds whose test segments tile `[start + train, end)` without overlap.
 
+    The last test window is shortened when `end` doesn't fall on a `test_months` boundary.
+
     Args:
         start: first bar of the first training window.
         end: exclusive end of the last test window; must not exceed `HOLDOUT_START`.
@@ -52,6 +54,8 @@ def make_folds(start: datetime, end: datetime, *, train_months: int = 12, test_m
         folds.append(Fold(start if anchored else train_start, test_start, test_start, test_end))
         test_start = test_end
         train_start = add_months(train_start, test_months)
+    if folds and test_start < end:  # shortened final test window so the tail up to `end` is still scored
+        folds.append(Fold(start if anchored else train_start, test_start, test_start, end))
     if not folds:
         msg = f"no complete {train_months}m/{test_months}m fold fits in {start.date()}..{end.date()}"
         raise ValueError(msg)

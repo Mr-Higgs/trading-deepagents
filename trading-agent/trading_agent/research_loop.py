@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,6 +45,10 @@ IS_RANGE = ("2025-01-01", "2026-01-01")   # exploration window for probes; never
 # IS year is the slow part), so an unbounded agent can burn 20-30 min/iteration. 3 probes is enough to
 # compare a couple of candidates against the baseline; after that the tool refuses and forces a proposal.
 MAX_PROBES_PER_ITER = 3
+# Legacy keep/revert gate constants, kept only for the deprecated `verdict`/`evaluate` helpers below.
+OOS_RANGE = ("2026-03-01", "2026-07-01")
+KEEP_OOS_FRACTION = 0.6
+MIN_OOS_TRADES = 30
 
 
 def _emit(payload: dict) -> None:
@@ -137,6 +142,37 @@ def save_proposal(run_dir: Path, iteration: int, *, strategy: str, hypothesis: s
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"strategy": strategy, "hypothesis": hypothesis, "rationale": rationale, "space": space_to_json(space)}, indent=2))
     return out
+
+
+def verdict(is_m: dict, oos_m: dict) -> tuple[bool, str]:
+    """Legacy keep/revert gate (keep iff OOS is profitable, not badly overfit vs IS, and has samples).
+
+    !!! warning
+        Deprecated: repeatedly selecting on one OOS window leaks it into the strategy. `loop` no longer
+        calls this; use `optimize.run` (walk-forward) for selection.
+    """
+    warnings.warn("research_loop.verdict is deprecated; select configs with optimize.run", DeprecationWarning, stacklevel=2)
+    keep = oos_m["expectancy"] > 0 and oos_m["expectancy"] >= KEEP_OOS_FRACTION * is_m["expectancy"] and oos_m["trades"] >= MIN_OOS_TRADES
+    reason = (
+        f"OOS expectancy {oos_m['expectancy']:.2f} (need >0 and >= {KEEP_OOS_FRACTION}*IS {is_m['expectancy']:.2f}"
+        f" = {KEEP_OOS_FRACTION * is_m['expectancy']:.2f}), OOS trades {oos_m['trades']} (need >= {MIN_OOS_TRADES})"
+    )
+    return keep, reason
+
+
+def evaluate(overrides: dict, config_dir: str = _DEFAULT_CONFIG) -> tuple[dict, dict, bool, str]:
+    """Legacy IS + OOS backtest and `verdict`.
+
+    !!! warning
+        Deprecated for the same reason as `verdict`; kept so existing imports keep working.
+    """
+    warnings.warn("research_loop.evaluate is deprecated; select configs with optimize.run", DeprecationWarning, stacklevel=2)
+    is_m = run_backtest(overrides, *IS_RANGE, config_dir=config_dir)
+    oos_m = run_backtest(overrides, *OOS_RANGE, config_dir=config_dir)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        keep, reason = verdict(is_m, oos_m)
+    return is_m, oos_m, keep, reason
 
 
 def _yaml_scalar(value) -> str:
