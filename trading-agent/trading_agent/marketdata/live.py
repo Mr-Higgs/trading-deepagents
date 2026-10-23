@@ -13,12 +13,12 @@ from datetime import datetime
 
 import pandas as pd
 
-from trading_agent.marketdata.base import row_to_candle
+from trading_agent.marketdata.base import LIVE_LOOKBACK, row_to_candle
 from trading_agent.types import Candle
 
 
 class LiveOandaSource:
-    def __init__(self, client: object, instrument: str, timeframes: dict[str, str], poll_seconds: int = 60, lookback: int = 250) -> None:
+    def __init__(self, client: object, instrument: str, timeframes: dict[str, str], poll_seconds: int = 60, lookback: int = LIVE_LOOKBACK) -> None:
         self._client = client
         self._instrument = instrument
         self._timeframes = timeframes  # role -> granularity

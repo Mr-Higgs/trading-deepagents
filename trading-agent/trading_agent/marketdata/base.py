@@ -57,6 +57,9 @@ def candles_to_frame(candles: list[Candle]) -> pd.DataFrame:
     return normalize_frame(pd.DataFrame(rows, columns=FRAME_COLUMNS))
 
 
+LIVE_LOOKBACK = 250  # candles per timeframe the live poller fetches; backtests use the same window
+
+
 def closed_only(df: pd.DataFrame, now: datetime) -> pd.DataFrame:
     """Rows whose candle had closed by `now`. The lookahead firewall.
 
