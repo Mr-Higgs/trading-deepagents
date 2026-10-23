@@ -47,6 +47,10 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+    env:
+      # Forks/mirrors without the org-membership GitHub App skip contributor classification
+      # instead of failing; size, file and title labels still use GITHUB_TOKEN.
+      HAS_APP: ${{ secrets.ORG_MEMBERSHIP_APP_ID != '' }}
 
     steps:
       # Checks out the base branch (NOT the PR head) so that
@@ -54,7 +58,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Generate GitHub App token
-        if: github.event.action == 'opened'
+        if: github.event.action == 'opened' && env.HAS_APP == 'true'
         id: app-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
         with:
@@ -62,7 +66,7 @@ jobs:
           private-key: ${{ secrets.ORG_MEMBERSHIP_APP_PRIVATE_KEY }}
 
       - name: Verify App token
-        if: github.event.action == 'opened'
+        if: github.event.action == 'opened' && env.HAS_APP == 'true'
         run: |
           if [ -z "${{ steps.app-token.outputs.token }}" ]; then
             echo "::error::GitHub App token generation failed — cannot classify contributor"
@@ -70,7 +74,7 @@ jobs:
           fi
 
       - name: Check org membership
-        if: github.event.action == 'opened'
+        if: github.event.action == 'opened' && env.HAS_APP == 'true'
         id: check-membership
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
