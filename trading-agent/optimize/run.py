@@ -37,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--min-trades", type=int, default=30)
     ap.add_argument("--space", default=None, help="search-space JSON (e.g. proposed by research_loop); default per strategy")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--jobs", type=int, default=1, help="run walk-forward folds in parallel processes")
     ap.add_argument("--config", default="config")
     ap.add_argument("--cache", default="data/candles")
     ap.add_argument("--out", default="research")
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - needs OAN
     folds = make_folds(start, end, train_months=args.train_months, test_months=args.test_months, anchored=args.anchored)
     cfg = base_config(args.config, args.pair, strategy)
     space = load_space(args.space) if args.space else DEFAULT_SPACES[strategy]
-    settings = Settings(trials=args.trials, objective=args.objective, min_trades=args.min_trades, seed=args.seed)
+    settings = Settings(trials=args.trials, objective=args.objective, min_trades=args.min_trades, seed=args.seed, jobs=args.jobs)
     evaluator = Evaluator(load_frames(cfg, start, end, cache_dir=args.cache))
     result = run_walk_forward(evaluator, cfg, space, folds, settings)
     meta = {

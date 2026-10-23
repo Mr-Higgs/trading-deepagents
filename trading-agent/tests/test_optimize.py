@@ -214,3 +214,14 @@ def test_weekend_financing_stays_in_window_ending_monday() -> None:
 def test_breakeven_pip_trigger_can_be_disabled_in_default_space() -> None:
     names = {p.name: p for p in DEFAULT_SPACES["ichimoku_breakout"]}
     assert 0.0 in names["breakeven_trigger_pips"].choices
+
+
+def test_parallel_folds_match_serial(tmp_path) -> None:
+    cfg, frames = _synthetic_setup()
+    folds = make_folds(D("2026-03-01"), D("2026-06-01"), train_months=1, test_months=1)
+    space = (Param("rr", "float", 1.5, 3.0, 0.5),)
+    ev = Evaluator(frames, workdir=tmp_path)
+    serial = run_walk_forward(ev, cfg, space, folds, Settings(trials=4, min_trades=1, pbo_splits=2))
+    forked = run_walk_forward(ev, cfg, space, folds, Settings(trials=4, min_trades=1, pbo_splits=2, jobs=2))
+    assert [f.params for f in forked.folds] == [f.params for f in serial.folds]
+    assert forked.oos_daily == serial.oos_daily and forked.trial_sharpes == serial.trial_sharpes

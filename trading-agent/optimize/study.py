@@ -25,6 +25,7 @@ class Settings:
     min_neighbors: int = 3
     seed: int = 0
     pbo_splits: int = 16
+    jobs: int = 1  # folds run in parallel processes when > 1
 
 
 @dataclass
@@ -95,35 +96,60 @@ def fold_budgets(trials: int, n_folds: int) -> list[int]:
     return [base + (i < extra) for i in range(n_folds)]
 
 
-def run_walk_forward(evaluator: Evaluator, base: AppConfig, space: Space, folds: list[Fold], settings: Settings) -> WalkForwardResult:
+def _run_fold(evaluator: Evaluator, base: AppConfig, space: Space, fold: Fold, index: int, trials: int, settings: Settings) -> tuple[FoldResult, list[float]]:
+    """Tune on the fold's train window, pick a plateau, score it on the test window."""
     import optuna
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+    rows: list[tuple[dict[str, Any], float]] = []
+    daily: list[list[float]] = []
+
+    def objective(trial: optuna.Trial) -> float:
+        params = sample(trial, space)
+        res = evaluator.run(apply_params(base, params), fold.train_start, fold.train_end)
+        value = score(res, settings.objective, settings.min_trades)
+        rows.append((params, value))
+        daily.append(res.daily)
+        return value
+
+    study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=settings.seed + index))
+    study.optimize(objective, n_trials=trials)
+    params, own, plateau = plateau_pick(space, rows, radius=settings.radius, min_neighbors=settings.min_neighbors)
+    oos = evaluator.run(apply_params(base, params), fold.test_start, fold.test_end)
+    return FoldResult(fold, params, own, plateau, pbo_cscv(daily, n_splits=settings.pbo_splits), oos), [per_period_sharpe(d) for d in daily]
+
+
+_FORK_STATE: tuple[Evaluator, AppConfig, Space, Settings] | None = None  # inherited by forked fold workers (no frame pickling)
+
+
+def _fold_worker(fold: Fold, index: int, trials: int) -> tuple[FoldResult, list[float]]:
+    assert _FORK_STATE is not None  # noqa: S101 - set by run_walk_forward before forking
+    evaluator, base, space, settings = _FORK_STATE
+    return _run_fold(evaluator, base, space, fold, index, trials, settings)
+
+
+def run_walk_forward(evaluator: Evaluator, base: AppConfig, space: Space, folds: list[Fold], settings: Settings) -> WalkForwardResult:
+    """Each fold's study is independent (own seed, own windows), so `settings.jobs > 1` runs folds in forked
+    processes with identical results to the serial path."""
+    global _FORK_STATE  # noqa: PLW0603 - fork-inherited worker context
     budget = fold_budgets(settings.trials, len(folds))
-    results: list[FoldResult] = []
-    trial_sharpes: list[float] = []
-    for i, fold in enumerate(folds):
-        rows: list[tuple[dict[str, Any], float]] = []
-        daily: list[list[float]] = []
+    if settings.jobs > 1 and len(folds) > 1:
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
 
-        def objective(trial: optuna.Trial, fold: Fold = fold, rows: list = rows, daily: list = daily) -> float:
-            params = sample(trial, space)
-            res = evaluator.run(apply_params(base, params), fold.train_start, fold.train_end)
-            value = score(res, settings.objective, settings.min_trades)
-            rows.append((params, value))
-            daily.append(res.daily)
-            return value
-
-        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=settings.seed + i))
-        study.optimize(objective, n_trials=budget[i])
-        trial_sharpes.extend(per_period_sharpe(d) for d in daily)
-        params, own, plateau = plateau_pick(space, rows, radius=settings.radius, min_neighbors=settings.min_neighbors)
-        oos = evaluator.run(apply_params(base, params), fold.test_start, fold.test_end)
-        results.append(FoldResult(fold, params, own, plateau, pbo_cscv(daily, n_splits=settings.pbo_splits), oos))
+        _FORK_STATE = (evaluator, base, space, settings)
+        try:
+            with ProcessPoolExecutor(max_workers=min(settings.jobs, len(folds)), mp_context=mp.get_context("fork")) as pool:
+                outs = list(pool.map(_fold_worker, folds, range(len(folds)), budget))
+        finally:
+            _FORK_STATE = None
+    else:
+        outs = [_run_fold(evaluator, base, space, fold, i, budget[i], settings) for i, fold in enumerate(folds)]
+    results = [r for r, _ in outs]
     return WalkForwardResult(
         results,
         [r for f in results for r in f.oos.daily],
         [p for f in results for p in f.oos.trade_pnls],
         sum(budget),
-        trial_sharpes,
+        [s for _, sharpes in outs for s in sharpes],
     )
