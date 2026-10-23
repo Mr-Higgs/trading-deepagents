@@ -11,27 +11,10 @@ import types
 
 import trading_agent.research_loop as R
 from trading_agent.config import load_config
-from trading_agent.research_loop import apply_to_yaml, verdict
+from trading_agent.research_loop import apply_to_yaml
 
-
-def test_verdict_keeps_profitable_not_overfit() -> None:
-    keep, _ = verdict({"expectancy": 50.0}, {"expectancy": 35.0, "trades": 40})
-    assert keep  # 35 > 0, 35 >= 0.6*50=30, 40 >= 30
-
-
-def test_verdict_rejects_overfit() -> None:
-    keep, _ = verdict({"expectancy": 50.0}, {"expectancy": 20.0, "trades": 40})
-    assert not keep  # 20 < 0.6*50 => in-sample-only gain
-
-
-def test_verdict_rejects_small_sample() -> None:
-    keep, _ = verdict({"expectancy": 50.0}, {"expectancy": 40.0, "trades": 10})
-    assert not keep  # not enough OOS trades
-
-
-def test_verdict_rejects_unprofitable_oos() -> None:
-    keep, _ = verdict({"expectancy": -20.0}, {"expectancy": -5.0, "trades": 90})
-    assert not keep  # OOS still negative
+# The keep/revert gate is now multi-fold + bootstrap + plateau; its unit tests live in
+# test_research_gate.py. This file keeps the YAML-persistence and end-to-end loop-streaming tests.
 
 
 def test_apply_to_yaml_preserves_comments(tmp_path) -> None:
@@ -79,9 +62,12 @@ def test_loop_streams_events_and_compounds(monkeypatch, tmp_path) -> None:
     (src_cfg / "strategy_v1.yaml").write_text("name: ichimoku_pullback\nversion: v1\n")
 
     def fake_run_backtest(ov, start, end, **kw):
-        base = {"trades": 90, "expectancy": -20.0, "win_rate": 0.5, "profit_factor": 0.3, "avg_win_R": 0.4, "avg_loss_R": -1.1, "total_pnl": -1800.0, "max_drawdown": 1800.0}
-        if ov.get("stop_rule") == "cloud":  # the "good" proposal: profitable OOS
-            base = {**base, "expectancy": 12.0, "profit_factor": 1.4, "total_pnl": 1080.0}
+        # analyze() now returns a per-window `pnls` list; the pooled gate derives expectancy/trades from it,
+        # so the stub must carry one too. 3 identical OOS folds -> pooled 90 trades. stop_rule=cloud is the
+        # "good" proposal: every fold profitable. (stop_rule is categorical -> plateau check skips, no extra probes.)
+        base = {"trades": 30, "expectancy": -20.0, "win_rate": 0.5, "profit_factor": 0.3, "avg_win_R": 0.4, "avg_loss_R": -1.1, "total_pnl": -600.0, "max_drawdown": 600.0, "pnls": [-20.0] * 30}
+        if ov.get("stop_rule") == "cloud":  # the "good" proposal: profitable OOS in every fold
+            base = {**base, "expectancy": 12.0, "profit_factor": 1.4, "total_pnl": 360.0, "pnls": [12.0] * 30}
         return base
 
     monkeypatch.setattr(R, "run_backtest", fake_run_backtest)

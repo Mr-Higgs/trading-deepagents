@@ -207,6 +207,31 @@ def signal_exit(backend: ExecutionBackend, snapshot: dict[str, pd.DataFrame], no
             log.write("CLOSE_SIGNAL", ts=now, reason="kijun_cross", trade_id=pos.trade_id, direction=direction)
 
 
+def confluence_exit(backend: ExecutionBackend, snapshot: dict[str, pd.DataFrame], now: datetime, cfg: AppConfig, log: EventLog) -> None:
+    """Confluence-flip exit: close a position when the top-down multi-TF score turns against it (config-gated).
+
+    Cuts a losing trade early - when the weighted H4/H1/M15 confluence weakens past the threshold - instead of
+    riding it to the full ATR stop. LONG exits when score <= threshold; SHORT exits when score >= -threshold
+    (threshold 0 => exit on a flip to the opposite/neutral sign). Uses the SAME score as the entry
+    (signals.topdown_confluence), so a position is held only while the picture that opened it still holds.
+    """
+    if not cfg.strategy.exit_on_confluence_flip:
+        return
+    positions = backend.open_positions()
+    if not positions:
+        return
+    conf = signals.topdown_confluence(snapshot, cfg.strategy)
+    if conf is None:
+        return
+    score, _, _ = conf
+    thr = cfg.strategy.exit_confluence_threshold
+    for pos in positions:
+        long = (pos.remaining_units or pos.units) > 0
+        if score <= thr if long else score >= -thr:
+            backend.request_close(pos.trade_id)
+            log.write("CLOSE_SIGNAL", ts=now, reason="confluence_flip", trade_id=pos.trade_id, direction="LONG" if long else "SHORT", score=score)
+
+
 def _demo() -> None:
     from datetime import timezone
 

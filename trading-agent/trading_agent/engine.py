@@ -16,7 +16,7 @@ from trading_agent.marketdata.base import MarketDataSource
 from trading_agent.risk import RiskEngine, trading_day, update_day_state
 from trading_agent.sessions import any_open, in_news_window
 from trading_agent.strategy.base import Strategy
-from trading_agent.trade_management import manage_open_trades, signal_exit
+from trading_agent.trade_management import confluence_exit, manage_open_trades, signal_exit
 from trading_agent.types import AccountState, DayState, OrderRequest, TradeEvent
 
 
@@ -98,6 +98,7 @@ def run(
         for partial in manage_open_trades(backend, bar, snapshot, now, cfg, log):
             equity = _apply_exit(partial, equity, day, cfg, log, now)
         signal_exit(backend, snapshot, now, cfg, log)
+        confluence_exit(backend, snapshot, now, cfg, log)
 
         # 2. gates (each blocked entry logged with its reason)
         if day.halted:

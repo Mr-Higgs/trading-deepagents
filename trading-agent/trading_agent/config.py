@@ -149,6 +149,10 @@ class StrategyConfig:
     atr_length: int = 14  # ATR lookback for the volatility stop (only used when stop_rule == "atr")
     atr_mult: float = 2.75  # stop distance = atr(atr_length) * atr_mult (WFX default)
     exit_on_kijun_cross: bool = False  # WFX early exit: close a position on a Kijun / Tenkan-Kijun cross against it
+    # confluence-flip exit: close a position when the top-down multi-TF score turns against it (cuts a losing
+    # trade early instead of riding it to the ATR stop). No-op unless enabled; used by any strategy via trade_management.
+    exit_on_confluence_flip: bool = False
+    exit_confluence_threshold: float = 0.0  # LONG exits when score <= this (0 = flip to non-positive); higher = exit on decay
     # v3.0 confluence (only used when name == "ichimoku_confluence"; no-op defaults otherwise):
     confluence_min_score: float = 4.0  # min |weighted multi-TF vote| to allow a trade
     confluence_signals: tuple[str, ...] = ("kijun", "span_a", "span_b", "cloud")  # price-vs-level votes to count
@@ -164,6 +168,12 @@ class StrategyConfig:
     price_action_signals: tuple[str, ...] = ("bos",)  # ALL must fire: subset of price_action.PA_SIGNALS ("bos", "sr_confluence")
     swing_lookback: int = 2  # fractal half-window for swing highs/lows
     sr_tolerance_pips: float = 5.0  # S/R cluster + confluence tolerance in pips (-> price via pair.pip_size)
+    # ml_signal (only used when name == "ml_signal"; no-op defaults otherwise - see strategy/ml_strategy.py):
+    model_path: str = ""  # path to the joblib model artifact from ml.train; empty => MLStrategy fails closed (no trades)
+    prob_threshold: float = 0.5  # min predicted class probability to act on a LONG/SHORT signal
+    max_hold_bars: int = 16  # triple-barrier time horizon (entry-TF bars); MUST match the model's training value
+    # ml_filter (only used when name == "ml_filter"; meta-labeling - see strategy/ml_filter.py):
+    filter_inner: str = "ichimoku_breakout"  # the primary strategy whose signals the ML filter keeps/vetoes
 
 
 @dataclass(frozen=True)
@@ -334,6 +344,8 @@ def load_config(config_dir: str | Path) -> AppConfig:
         atr_length=int(setup.get("atr_length", 14)),
         atr_mult=float(setup.get("atr_mult", 2.75)),
         exit_on_kijun_cross=bool(setup.get("exit_on_kijun_cross", False)),
+        exit_on_confluence_flip=bool(setup.get("exit_on_confluence_flip", False)),
+        exit_confluence_threshold=float(setup.get("exit_confluence_threshold", 0.0)),
         confluence_min_score=float(setup.get("confluence_min_score", 4.0)),
         confluence_signals=tuple(setup["confluence_signals"]) if isinstance(setup.get("confluence_signals"), list) else ("kijun", "span_a", "span_b", "cloud"),
         entry_trigger=str(setup.get("entry_trigger", "pullback")),
@@ -346,6 +358,10 @@ def load_config(config_dir: str | Path) -> AppConfig:
         price_action_signals=tuple(setup["price_action_signals"]) if isinstance(setup.get("price_action_signals"), list) else ("bos",),
         swing_lookback=int(setup.get("swing_lookback", 2)),
         sr_tolerance_pips=float(setup.get("sr_tolerance_pips", 5.0)),
+        model_path=str(setup.get("model_path", "")),
+        prob_threshold=float(setup.get("prob_threshold", 0.5)),
+        max_hold_bars=int(setup.get("max_hold_bars", 16)),
+        filter_inner=str(setup.get("filter_inner", "ichimoku_breakout")),
     )
 
     if strategy.instrument not in pairs:

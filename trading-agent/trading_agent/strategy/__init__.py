@@ -11,14 +11,20 @@ def build_strategy(strategy_cfg: StrategyConfig, pair: PairConfig) -> Strategy:
     # lazy imports so this package's __init__ has no import cycle with the strategy modules
     from trading_agent.strategy.ichimoku_breakout import IchimokuBreakout
     from trading_agent.strategy.ichimoku_cloud_breakout import IchimokuCloudBreakout
+    from trading_agent.strategy.ichimoku_combined import IchimokuCombined
     from trading_agent.strategy.ichimoku_confluence import IchimokuConfluence
     from trading_agent.strategy.ichimoku_pullback import IchimokuPullback
+    from trading_agent.strategy.ml_filter import MLFilter
+    from trading_agent.strategy.ml_strategy import MLStrategy
 
     registry = {
         "ichimoku_pullback": IchimokuPullback,
         "ichimoku_breakout": IchimokuBreakout,
         "ichimoku_confluence": IchimokuConfluence,
         "ichimoku_cloud_breakout": IchimokuCloudBreakout,
+        "ichimoku_combined": IchimokuCombined,
+        "ml_signal": MLStrategy,  # ML generates direction; code owns stop/tp/size (strategy/ml_strategy.py)
+        "ml_filter": MLFilter,  # meta-labeling: ML keeps/vetoes an inner strategy's signals (strategy/ml_filter.py)
     }
     try:
         cls = registry[strategy_cfg.name]

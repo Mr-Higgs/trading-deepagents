@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -116,6 +117,23 @@ def _excursions(trades: list[dict[str, Any]], candles_path: str | Path) -> dict[
     return {k: (sum(v) / len(v) if v else 0.0) for k, v in acc.items()}
 
 
+def bootstrap_expectancy(pnls: list[float], n: int = 1000, seed: int = 1337) -> dict[str, float]:
+    """Resample closed-trade P/L with replacement to gauge whether expectancy is luck.
+
+    Returns the 5th / 50th percentile of the resampled per-trade expectancy over `n`
+    reshuffles. A 5th percentile > 0 means even an unlucky reshuffle of these exact
+    trades still profits — the edge is distinguishable from noise, not one lucky run.
+    Deterministic (fixed seed) so backtests stay reproducible. ponytail: nearest-rank
+    percentile, exact enough at n=1000; bump n if the CI ever needs finer resolution.
+    """
+    if not pnls:
+        return {"p05": 0.0, "p50": 0.0, "n": 0}
+    rng = random.Random(seed)
+    k = len(pnls)
+    means = sorted(sum(rng.choice(pnls) for _ in range(k)) / k for _ in range(n))
+    return {"p05": means[int(0.05 * n)], "p50": means[int(0.50 * n)], "n": n}
+
+
 def analyze(log_path: str | Path, candles_path: str | Path | None = None, starting_equity: float = 10_000.0) -> dict[str, Any]:
     """Fold a run's JSONL log into the edge metrics. Pure/deterministic; no network."""
     records = _load(log_path)
@@ -152,6 +170,7 @@ def analyze(log_path: str | Path, candles_path: str | Path | None = None, starti
         "avg_win_R": sum(win_r) / len(win_r) if win_r else 0.0,
         "avg_loss_R": sum(loss_r) / len(loss_r) if loss_r else 0.0,
         "total_pnl": sum(pnls),
+        "pnls": pnls,  # raw closed-trade P/L; the research gate feeds this to bootstrap_expectancy. _brief() strips it before streaming.
         "max_drawdown": max_dd,
         "pnl_over_dd": sum(pnls) / max_dd if max_dd > 0 else sum(pnls),
         "by_setup": _bucket_stats(trades, "setup_id"),
@@ -256,7 +275,13 @@ def _demo() -> None:
     assert abs(m["avg_win_R"] - 2.0) < 1e-9, m  # 200/100
     assert abs(m["avg_loss_R"] - (-1.0)) < 1e-9, m
     assert m["by_direction"]["LONG"]["n"] == 1 and m["by_direction"]["SHORT"]["n"] == 1, m
-    print("analytics self-check OK:", {k: m[k] for k in ("trades", "expectancy", "profit_factor", "win_rate")})
+    # bootstrap: 2 trades (+200/-100) is luck-dominated -> unlucky 5th pct dips negative; a broad
+    # all-winner set stays positive at the 5th pct. This is the gate's "is the edge real?" test.
+    luck = bootstrap_expectancy(m["pnls"])
+    assert luck["p05"] < 0 < luck["p50"], luck
+    real = bootstrap_expectancy([80.0, 120.0, 95.0, 110.0, 90.0, 105.0, 100.0, 115.0])
+    assert real["p05"] > 0, real
+    print("analytics self-check OK:", {k: m[k] for k in ("trades", "expectancy", "profit_factor", "win_rate")}, "bootstrap OK")
 
 
 def main() -> None:

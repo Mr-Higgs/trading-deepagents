@@ -3,16 +3,24 @@
 Adapts examples/ralph_mode (fresh context each iteration, the filesystem + git as memory) to strategy
 R&D. Each iteration a fresh deep-agent reads the latest analysis + journal + hypotheses, proposes ONE
 strategy-config change, and may probe it with a read-only `backtest` tool. Then DETERMINISTIC code —
-not the model — runs the change in-sample AND out-of-sample and applies the keep/revert gate:
+not the model — runs the change in-sample AND across several out-of-sample folds and applies a robust
+keep/revert gate:
 
-    keep iff  oos.expectancy > 0  AND  oos.expectancy >= 0.6 * is.expectancy  AND  oos.trades >= 30
+    keep iff  >= 2 of 3 OOS folds are positive          (not one lucky window)
+          AND pooled-OOS expectancy > 0
+          AND pooled-OOS expectancy >= 0.6 * is.expectancy
+          AND pooled-OOS trades >= 30
+          AND bootstrap 5th-pct of pooled-OOS expectancy > 0   (edge distinguishable from luck)
 
-A kept change must also beat the current best OOS expectancy (hill-climb). Accepted changes are written
-into config/strategy_v1.yaml, journaled, and git-committed for later review; rejected ones are journaled
-(a killed hypothesis is still data). The loop never touches live money — it only edits config + backtests.
+A kept change must also beat the current best pooled-OOS expectancy (hill-climb) AND pass a plateau
+check — its primary numeric value must stay OOS-positive at +/-1 step, so we adopt plateaus, not spikes.
+Accepted changes are written into config/strategy_v1.yaml, journaled, and git-committed; rejected ones
+are journaled (a killed hypothesis is still data). The loop never touches live money — it only edits
+config + backtests.
 
-The out-of-sample gate is the anti-overfit spine: an LLM tuning against one window would otherwise just
-curve-fit. Nothing here can raise the OOS bar — it's plain Python the loop runs after the model proposes.
+The gate is the anti-overfit spine: an LLM tuning against ONE window would just curve-fit it into a
+de-facto training set. Multiple folds + a bootstrap luck test + a plateau check make that far harder.
+Nothing here can lower the bar — it's plain Python the loop runs after the model proposes.
 
     uv run python -m trading_agent.research_loop --iterations 10
     uv run python -m trading_agent.research_loop --iterations 5 --model anthropic:claude-opus-4-8
@@ -31,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from trading_agent import engine, store
-from trading_agent.analytics import analyze, to_markdown
+from trading_agent.analytics import analyze, bootstrap_expectancy, to_markdown
 from trading_agent.config import load_config
 from trading_agent.eventlog import EventLog
 from trading_agent.marketdata.historical import HistoricalOandaSource
@@ -47,9 +55,24 @@ _DEFAULT_CONFIG = str(_ROOT / "config")
 _DEFAULT_CACHE = str(_ROOT / "data" / "candles")
 _DEFAULT_LOGDIR = str(_ROOT / "data" / "logs")
 IS_RANGE = ("2025-01-01", "2026-01-01")   # in-sample: tune here
-OOS_RANGE = ("2026-03-01", "2026-07-01")  # out-of-sample holdout: the change must survive here
+# Out-of-sample = several consecutive holdout folds (walk-forward-lite). A change must hold up across
+# MULTIPLE windows, not one — that's what stops the loop turning a single holdout into a training set.
+OOS_FOLDS = (
+    ("2026-01-01", "2026-03-01"),
+    ("2026-03-01", "2026-05-01"),
+    ("2026-05-01", "2026-07-01"),
+)
+OOS_SPAN = (OOS_FOLDS[0][0], OOS_FOLDS[-1][1])  # for display/meta only
 KEEP_OOS_FRACTION = 0.6
-MIN_OOS_TRADES = 30
+MIN_OOS_TRADES = 30           # pooled across folds
+MIN_FOLDS_POSITIVE = 2        # of len(OOS_FOLDS): a change must be positive in the majority of folds
+# Primary numeric levers we can perturb +/-1 step to check the accepted value sits on a plateau, not a
+# spike. Categorical/boolean/list keys (name, stop_rule, exit_on_kijun_cross, m15_trigger) have no
+# neighborhood to probe and skip the check.
+_NUMERIC_KEYS = {
+    "rr", "atr_mult", "atr_length", "stop_buffer_pips", "min_trend_distance_pips",
+    "h1_pullback_band", "confluence_min_score", "retest_band_pips", "breakout_lookback",
+}
 # Cap the agent's `backtest` tool calls per iteration. Each call runs a full IS+OOS backtest (~2 min, the
 # IS year is the slow part), so an unbounded agent can burn 20-30 min/iteration. 3 probes is enough to
 # compare a couple of candidates against the baseline; after that the tool refuses and forces a proposal.
@@ -137,21 +160,88 @@ def run_backtest(overrides: dict, start: str, end: str, config_dir: str = _DEFAU
         Path(tmp).unlink(missing_ok=True)
 
 
+def _pool_oos(folds: list[dict]) -> dict:
+    """Fold per-window OOS metrics into one pooled metrics dict the gate + _brief can consume.
+
+    Pools the raw closed-trade P/L across folds (the sample the bootstrap needs) and recomputes
+    the headline aggregates from it. R-multiple averages are trade-weighted fold means (display
+    only); max_drawdown is the worst single-fold DD — a pooled equity curve across disjoint
+    windows isn't meaningful, so we don't fake one."""
+    pnls = [p for f in folds for p in f.get("pnls", [])]
+    n = len(pnls)
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    gross_win, gross_loss = sum(wins), abs(sum(losses))
+    total_trades = sum(f["trades"] for f in folds) or 1  # weight denominator; guard div-by-zero
+
+    def wavg(key: str) -> float:  # trade-weighted mean of a per-fold aggregate (approximate, display only)
+        return sum(f[key] * f["trades"] for f in folds) / total_trades
+
+    return {
+        "trades": n,
+        "win_rate": len(wins) / (len(wins) + len(losses)) if wins or losses else 0.0,
+        "expectancy": sum(pnls) / n if n else 0.0,
+        "profit_factor": gross_win / gross_loss if gross_loss else float("inf") if gross_win else 0.0,
+        "avg_win_R": wavg("avg_win_R"),
+        "avg_loss_R": wavg("avg_loss_R"),
+        "total_pnl": sum(pnls),
+        "max_drawdown": max((f["max_drawdown"] for f in folds), default=0.0),
+        "pnls": pnls,
+        "fold_expectancy": [round(f["expectancy"], 2) for f in folds],
+        "folds_positive": sum(1 for f in folds if f["expectancy"] > 0),
+    }
+
+
+def _oos_pooled(overrides: dict, config_dir: str = _DEFAULT_CONFIG) -> dict:
+    """Run every OOS fold and pool them. The IS run is separate (slow, once) — this is OOS-only."""
+    return _pool_oos([run_backtest(overrides, start, end, config_dir=config_dir) for start, end in OOS_FOLDS])
+
+
 def verdict(is_m: dict, oos_m: dict) -> tuple[bool, str]:
-    """The keep/revert gate. Pure: keep iff OOS is profitable, not badly overfit vs IS, and has samples."""
-    keep = oos_m["expectancy"] > 0 and oos_m["expectancy"] >= KEEP_OOS_FRACTION * is_m["expectancy"] and oos_m["trades"] >= MIN_OOS_TRADES
+    """The robust keep/revert gate. Pure: majority of folds positive, pooled OOS profitable, not badly
+    overfit vs IS, enough samples, and distinguishable from luck (bootstrap 5th-pct > 0)."""
+    boot = bootstrap_expectancy(oos_m.get("pnls", []))
+    folds_pos = oos_m.get("folds_positive", 0)
+    nfolds = len(oos_m.get("fold_expectancy", []))
+    keep = (
+        folds_pos >= MIN_FOLDS_POSITIVE
+        and oos_m["expectancy"] > 0
+        and oos_m["expectancy"] >= KEEP_OOS_FRACTION * is_m["expectancy"]
+        and oos_m["trades"] >= MIN_OOS_TRADES
+        and boot["p05"] > 0
+    )
     reason = (
-        f"OOS expectancy {oos_m['expectancy']:.2f} (need >0 and >= {KEEP_OOS_FRACTION}*IS {is_m['expectancy']:.2f}"
-        f" = {KEEP_OOS_FRACTION * is_m['expectancy']:.2f}), OOS trades {oos_m['trades']} (need >= {MIN_OOS_TRADES})"
+        f"folds+ {folds_pos}/{nfolds} (need >= {MIN_FOLDS_POSITIVE}), pooled OOS exp {oos_m['expectancy']:.2f} "
+        f"(need >0 and >= {KEEP_OOS_FRACTION}*IS {is_m['expectancy']:.2f} = {KEEP_OOS_FRACTION * is_m['expectancy']:.2f}), "
+        f"OOS trades {oos_m['trades']} (need >= {MIN_OOS_TRADES}), bootstrap p05 {boot['p05']:.2f} (need >0)"
     )
     return keep, reason
 
 
 def evaluate(overrides: dict, config_dir: str = _DEFAULT_CONFIG) -> tuple[dict, dict, bool, str]:
     is_m = run_backtest(overrides, *IS_RANGE, config_dir=config_dir)
-    oos_m = run_backtest(overrides, *OOS_RANGE, config_dir=config_dir)
+    oos_m = _oos_pooled(overrides, config_dir=config_dir)
     keep, reason = verdict(is_m, oos_m)
     return is_m, oos_m, keep, reason
+
+
+def plateau_ok(overrides: dict, config_dir: str = _DEFAULT_CONFIG) -> tuple[bool, str]:
+    """Reject curve-fit spikes: the primary numeric override must stay pooled-OOS-positive at +/-1 step.
+
+    Runs only on a candidate that already passed the gate (rare), so its cost is bounded. Proposals
+    with no numeric key (name/stop_rule/bools/lists only) have no neighborhood and pass trivially."""
+    key = next((k for k in overrides if k in _NUMERIC_KEYS), None)
+    if key is None:
+        return True, "no numeric lever to perturb"
+    base = overrides[key]
+    if isinstance(base, bool) or not isinstance(base, (int, float)):
+        return True, f"{key} not a scalar number"
+    neighbors = [base - 1, base + 1] if isinstance(base, int) else [round(base * 0.9, 6), round(base * 1.1, 6)]
+    for val in neighbors:
+        exp = _oos_pooled({**overrides, key: val}, config_dir=config_dir)["expectancy"]
+        if exp <= 0:
+            return False, f"{key}={val} -> pooled OOS exp {exp:.2f} <= 0 (spike, not plateau)"
+    return True, f"{key} plateau stable at +/-1 step"
 
 
 def _yaml_scalar(value) -> str:
@@ -249,9 +339,11 @@ _SYSTEM_PROMPT = (
     "You are a systematic-trading research assistant sharpening a deterministic Ichimoku + candlestick "
     "forex strategy on OANDA AUD/USD. Each call you propose ONE change to the strategy config and test "
     "whether it improves EXPECTANCY (average $ per trade) — not win rate, which is gameable. You do not "
-    "touch live money; you edit config and backtest. A separate deterministic gate decides keep/revert on "
-    "an out-of-sample window, so propose changes with a real thesis, not curve-fits. Use the `backtest` "
-    "tool to probe an idea (it reports in-sample AND out-of-sample metrics) before you commit to a proposal. "
+    "touch live money; you edit config and backtest. A separate deterministic gate decides keep/revert: a "
+    "change must be positive across the MAJORITY of several out-of-sample folds, survive a bootstrap luck "
+    "test, and sit on a parameter plateau (stable at +/-1 step) — so propose changes with a real thesis, "
+    "not curve-fits that win one window. Use the `backtest` tool to probe an idea (it reports in-sample and "
+    "per-fold out-of-sample metrics) before you commit to a proposal. "
     "Change ONE thing per iteration so the effect is attributable. "
     f"BUDGET: you may call `backtest` at most {MAX_PROBES_PER_ITER} times per iteration — each call is expensive. "
     "Probe your one or two best candidates, then submit the Proposal; the tool refuses once the budget is spent."
@@ -304,6 +396,7 @@ def _build_agent(model: str, max_probes: int = MAX_PROBES_PER_ITER):
             return f"backtest failed: {e}"
         return json.dumps({
             "in_sample": _brief(is_m), "out_of_sample": _brief(oos_m),
+            "oos_folds": oos_m.get("fold_expectancy"),  # per-window expectancy; the gate wants the majority positive
             "would_keep": keep, "gate": reason, "ignored_keys": ignored,
             "probes_left": max_probes - probes["n"],
         })
@@ -378,19 +471,19 @@ def loop(iterations: int, model: str, config_dir: str = _DEFAULT_CONFIG, commit:
         )
 
     print(f"research loop: {iterations} iterations, model={model}", flush=True)
-    print(f"  in-sample {IS_RANGE[0]}..{IS_RANGE[1]}  |  out-of-sample {OOS_RANGE[0]}..{OOS_RANGE[1]}", flush=True)
-    meta = {"run_id": run_id, "kind": "research", "strategy_version": base_version, "name": cfg0.strategy.name, "model": model, "commit": commit, "started_at": started_at, "is_range": list(IS_RANGE), "oos_range": list(OOS_RANGE)}
+    print(f"  in-sample {IS_RANGE[0]}..{IS_RANGE[1]}  |  out-of-sample {OOS_SPAN[0]}..{OOS_SPAN[1]} ({len(OOS_FOLDS)} folds)", flush=True)
+    meta = {"run_id": run_id, "kind": "research", "strategy_version": base_version, "name": cfg0.strategy.name, "model": model, "commit": commit, "started_at": started_at, "is_range": list(IS_RANGE), "oos_range": list(OOS_SPAN), "oos_folds": [list(f) for f in OOS_FOLDS]}
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     store.record_run(run_id, kind="research", strategy_version=base_version, mode="research", model=model, started_at=started_at)
-    emit("PROGRESS", phase="baseline")  # early signal: the two baseline backtests below run silent for ~2-3 min before RESEARCH_META
+    emit("PROGRESS", phase="baseline")  # early signal: the baseline IS + OOS-fold backtests below run silent for a few min before RESEARCH_META
     base_is = run_backtest({}, *IS_RANGE, config_dir=config_dir)
-    base_oos = run_backtest({}, *OOS_RANGE, config_dir=config_dir)
+    base_oos = _oos_pooled({}, config_dir)
     best_oos = base_oos["expectancy"]
     _write_report(config_dir)
-    print(f"  baseline: IS expectancy {base_is['expectancy']:.2f} | OOS expectancy {best_oos:.2f} (this is the bar)", flush=True)
+    print(f"  baseline: IS expectancy {base_is['expectancy']:.2f} | pooled OOS expectancy {best_oos:.2f} folds {base_oos['fold_expectancy']} (this is the bar)", flush=True)
     emit(
         "RESEARCH_META", iterations=iterations, model=model, commit=commit,
-        is_range=list(IS_RANGE), oos_range=list(OOS_RANGE),
+        is_range=list(IS_RANGE), oos_range=list(OOS_SPAN),
         baseline_is=_brief(base_is), baseline_oos=_brief(base_oos), best_oos=round(best_oos, 2),
     )
 
@@ -427,14 +520,20 @@ def loop(iterations: int, model: str, config_dir: str = _DEFAULT_CONFIG, commit:
             record_iter(i, status="skipped", note="empty or disallowed overrides", hypothesis=proposal.hypothesis, best_oos=round(best_oos, 2))
             continue
 
-        emit("PROGRESS", iteration=i, phase="evaluating")  # two more backtests (IS+OOS) run silent below
+        emit("PROGRESS", iteration=i, phase="evaluating")  # IS + OOS-fold backtests run silent below
         is_m, oos_m, keep, reason = evaluate(overrides, config_dir=config_dir)
         improved = oos_m["expectancy"] > best_oos
         print(f"  proposal {overrides}", flush=True)
-        print(f"  IS expectancy {is_m['expectancy']:.2f} | OOS expectancy {oos_m['expectancy']:.2f} | keep={keep} improved={improved}", flush=True)
+        print(f"  IS exp {is_m['expectancy']:.2f} | pooled OOS exp {oos_m['expectancy']:.2f} folds {oos_m['fold_expectancy']} | keep={keep} improved={improved}", flush=True)
 
-        header = f"## Iteration {i}\n- **hypothesis:** {proposal.hypothesis}\n- **overrides:** `{json.dumps(overrides)}`\n- **rationale:** {proposal.rationale}\n- IS: {json.dumps(_brief(is_m))}\n- OOS: {json.dumps(_brief(oos_m))}\n- gate: {reason}"
-        kept = keep and improved
+        # Plateau guard runs ONLY on a candidate that already passed the gate and improved — bounded cost.
+        plateau_pass, plateau_note = plateau_ok(overrides, config_dir=config_dir) if keep and improved else (True, "not checked")
+        kept = keep and improved and plateau_pass
+        header = (
+            f"## Iteration {i}\n- **hypothesis:** {proposal.hypothesis}\n- **overrides:** `{json.dumps(overrides)}`\n"
+            f"- **rationale:** {proposal.rationale}\n- IS: {json.dumps(_brief(is_m))}\n- OOS: {json.dumps(_brief(oos_m))}\n"
+            f"- OOS folds: {oos_m['fold_expectancy']}\n- gate: {reason}\n- plateau: {plateau_note}"
+        )
         version = f"{base_version}+r{i}" if kept else None
         if kept:
             accepted += 1
@@ -453,14 +552,19 @@ def loop(iterations: int, model: str, config_dir: str = _DEFAULT_CONFIG, commit:
                 _git_commit(i, best_oos, proposal.rationale)
             print(f"  KEPT -> config updated to {version}{', committed' if commit else ' (no commit)'}", flush=True)
         else:
-            why = "OOS gate failed" if not keep else "did not beat current best OOS"
+            if not keep:
+                why = "OOS gate failed"
+            elif not improved:
+                why = "did not beat current best OOS"
+            else:
+                why = f"failed plateau check ({plateau_note})"
             _journal(header + f"\n- **VERDICT: REVERT** ({why})")
             print(f"  reverted ({why})", flush=True)
         record_iter(
             i, status="kept" if kept else "reverted",
             hypothesis=proposal.hypothesis, rationale=proposal.rationale, overrides=overrides,
             is_metrics=_brief(is_m), oos_metrics=_brief(oos_m), keep=keep, improved=improved,
-            gate=reason, best_oos=round(best_oos, 2), version=version,
+            gate=f"{reason} | plateau: {plateau_note}", best_oos=round(best_oos, 2), version=version,
         )
 
     summary = {"accepted": accepted, "iterations": iterations, "best_oos": round(best_oos, 2)}

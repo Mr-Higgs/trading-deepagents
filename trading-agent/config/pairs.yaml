@@ -1,7 +1,39 @@
-# Instruments. pip_location is the power of ten of one pip (-4 => 1 pip = 0.0001).
+# Instruments. pip_location is the power of ten of one pip (-4 => 1 pip = 0.0001; JPY pairs -2).
+# AUD_USD is the traded instrument; the rest exist so the ML corpus (ml.fetch_corpus) can pool majors.
+# Features are ATR-normalized, so pooling different pip scales into one training set is valid.
 AUD_USD:
   oanda_symbol: AUD_USD
   pip_location: -4
   quote_ccy: USD          # == account_ccy, so units = risk_amount / stop_distance holds directly
+  min_units: 1
+  max_units: 100000
+EUR_USD:
+  oanda_symbol: EUR_USD
+  pip_location: -4
+  quote_ccy: USD
+  min_units: 1
+  max_units: 100000
+GBP_USD:
+  oanda_symbol: GBP_USD
+  pip_location: -4
+  quote_ccy: USD
+  min_units: 1
+  max_units: 100000
+NZD_USD:
+  oanda_symbol: NZD_USD
+  pip_location: -4
+  quote_ccy: USD
+  min_units: 1
+  max_units: 100000
+USD_JPY:
+  oanda_symbol: USD_JPY
+  pip_location: -2
+  quote_ccy: JPY
+  min_units: 1
+  max_units: 100000
+USD_CAD:
+  oanda_symbol: USD_CAD
+  pip_location: -4
+  quote_ccy: CAD
   min_units: 1
   max_units: 100000

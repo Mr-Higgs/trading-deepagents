@@ -142,6 +142,38 @@ def ichimoku_level_target(entry: float, direction: str, ichi_rows, min_dist: flo
     return max(below) if below else None
 
 
+# Top-down weights: the higher timeframe dominates the bias (triple-screen screen 1 outranks the trigger TF).
+_TF_WEIGHT = {"trend": 3, "bias": 2, "entry": 1}
+
+
+def topdown_confluence(snapshot: dict[str, pd.DataFrame], strat):
+    """Weighted multi-timeframe confluence score (trend×3 / bias×2 / entry×1) over `strat.confluence_signals`.
+
+    The single source of truth for "the confluence score", used both to pick a trade's direction (entry) and
+    to detect the score turning against an open position (exit). Returns (score, per_tf_votes, ichi_rows_by_role)
+    or None when any timeframe lacks the history to define its cloud. `strat` is a StrategyConfig (duck-typed:
+    needs `ichimoku`, `trend_tf`/`bias_tf`/`entry_tf`, `confluence_signals`). Never raises.
+    """
+    from trading_agent.indicators import ichimoku
+
+    p = strat.ichimoku
+    score = 0
+    per_tf: dict[str, int] = {}
+    rows: dict[str, pd.Series] = {}
+    for role, tf in (("trend", strat.trend_tf), ("bias", strat.bias_tf), ("entry", strat.entry_tf)):
+        frame = snapshot.get(tf)
+        if frame is None or len(frame) < p.min_rows:
+            return None
+        row = ichimoku(frame, tenkan=p.tenkan, kijun=p.kijun, senkou_b=p.senkou_b, displacement=p.displacement).iloc[-1]
+        if row[["cloud_top", "cloud_bottom", "kijun"]].isna().any():
+            return None
+        rows[role] = row
+        vote = price_level_votes(float(frame["c"].iloc[-1]), row, strat.confluence_signals)
+        per_tf[tf] = vote
+        score += _TF_WEIGHT[role] * vote
+    return score, per_tf, rows
+
+
 def ichimoku_signals(df: pd.DataFrame, ichi: pd.DataFrame, displacement: int = 26) -> dict:
     """Full taxonomy for the latest bar. df needs column `c`; ichi from indicators.ichimoku."""
     n = len(df)

@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
+
+import pandas as pd
 
 from trading_agent.config import ExecutionConfig, IchimokuParams, PairConfig, RiskConfig, StrategyConfig
+from trading_agent.marketdata.base import FRAME_COLUMNS, normalize_frame
 from trading_agent.types import AccountState, DayState, Signal
 
 UTC = timezone.utc
+
+
+def make_frame(n: int = 120, start: float = 1.0, step: float = 0.001, instrument: str = "AUD_USD", tf: str = "M15") -> pd.DataFrame:
+    """A normalized rising OHLC candle frame - enough history to define an Ichimoku cloud + ATR."""
+    minutes = {"M15": 15, "H1": 60, "H4": 240}.get(tf, 15)
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    rows = []
+    for i in range(n):
+        px = start + i * step
+        ot = t0 + timedelta(minutes=minutes * i)
+        rows.append((instrument, tf, ot, ot + timedelta(minutes=minutes), px, px + step * 0.7, px - step * 0.3, px + step * 0.5, 10, True))
+    return normalize_frame(pd.DataFrame(rows, columns=FRAME_COLUMNS))
 
 
 def make_pair(min_units: int = 1, max_units: int = 100_000, quote_ccy: str = "USD") -> PairConfig:
