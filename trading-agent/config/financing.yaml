@@ -1,9 +1,9 @@
 # Overnight financing (swap). Annualized fractions; negative => you pay. Charged at each rollover a
-# position is held through; Wednesday is charged 3 days (weekend carry). Placeholder AUD_USD rates
-# approximate the 2025 AU-US policy differential plus a broker markup; refresh them with
-# `trading_agent.financing.load_oanda_financing` (OANDA practice account) before trusting results.
+# position is held through; Wednesday is charged 3 days (weekend carry). AUD_USD rates are
+# OANDA practice-account financing rates pulled 2026-10-23 with `trading_agent.financing.load_oanda_financing`.
+# OANDA publishes no rate history, so these current rates are applied to all backtest history (approximation).
 rollover_utc: "21:00"
 days_in_year: 365
 days_charged: {MONDAY: 1, TUESDAY: 1, WEDNESDAY: 3, THURSDAY: 1, FRIDAY: 1, SATURDAY: 0, SUNDAY: 0}
 pairs:
-  AUD_USD: {long_rate: -0.0320, short_rate: 0.0030}
+  AUD_USD: {long_rate: -0.0044, short_rate: -0.0162}

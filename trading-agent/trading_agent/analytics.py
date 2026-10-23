@@ -178,7 +178,9 @@ def realized_events(records: list[dict[str, Any]]) -> list[tuple[datetime, float
 
 def _risk_adjusted(records: list[dict[str, Any]], starting_equity: float, r_mults: list[float]) -> dict[str, float]:
     """Sharpe / Sortino / MAR on daily realized returns, plus average R and total financing."""
-    rets = rm.daily_returns(realized_events(records), starting_equity)
+    stamps = [datetime.fromisoformat(r["ts"]).date() for r in records if r.get("ts")]
+    span = (min(stamps), max(stamps)) if stamps else (None, None)  # whole run, so idle boundary days count
+    rets = rm.daily_returns(realized_events(records), starting_equity, start=span[0], end=span[1])
     return {
         "sharpe": rm.sharpe(rets),
         "sortino": rm.sortino(rets),

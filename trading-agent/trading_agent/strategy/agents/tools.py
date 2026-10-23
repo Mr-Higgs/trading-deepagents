@@ -266,7 +266,7 @@ def economic_calendar(instrument: str = "AUD_USD", hours_ahead: int = 48, hours_
         from trading_agent.news import load_calendar  # lazy: keeps the tool import light
 
         cal = load_calendar(_calendar_path())
-        if cal.empty or cal["time"].min().to_pydatetime() > ts or cal["time"].max().to_pydatetime() < ts:
+        if cal.empty or cal["published"].min().to_pydatetime() > ts or cal["time"].max().to_pydatetime() < ts:
             return "Economic calendar unavailable."  # stored calendar doesn't cover as_of
         return summarize_calendar(calendar_events_as_of(cal, instrument, ts, hours_ahead, hours_back))
     except Exception:  # noqa: BLE001 - any failure degrades to neutral; the gate must not crash on a flaky feed

@@ -84,6 +84,7 @@ class SimulatedBackend:
         self._pending_close: set[str] = set()  # trade_ids to close at the next bar's open (WFX signal exit)
         self._open: dict[str, _Open] = {}
         self._last_ts: datetime | None = None
+        self._last_bar: Candle | None = None
 
     def submit(self, order: OrderRequest) -> None:
         self._pending.append(order)
@@ -136,6 +137,10 @@ class SimulatedBackend:
         if self._model is not None:  # management levels are mid prices: cross half the spread to close
             half = self._model.half_spread_pips(now) * self.pip_size
             price = price - half if closed > 0 else price + half
+            if self._last_bar is not None:  # never better than the executable side of the bar that touched it
+                bid, ask = self.sides(self._last_bar)
+                if (closed > 0 and bid.h < price) or (closed < 0 and ask.l > price):
+                    return None
         pnl = self._pnl(closed, price, t.entry, now)
         t.units -= closed
         t.legs_filled += 1
@@ -159,11 +164,11 @@ class SimulatedBackend:
         )
 
     def reconcile(self, now: datetime, bar: Candle) -> list[TradeEvent]:
-        events = self._accrue_financing(now, bar)
-        if self._model is None:
-            events += self._reconcile_legacy(now, bar)
-        else:
-            events += self._reconcile_bid_ask(now, bar, self._model)
+        # Fills (at this bar's open) and stop/target exits (inside the bar) both precede a rollover at the
+        # bar close, so swap is charged only on positions still open after this bar's exits.
+        events = self._reconcile_legacy(now, bar) if self._model is None else self._reconcile_bid_ask(now, bar, self._model)
+        events += self._accrue_financing(now, bar)
+        self._last_bar = bar
         self._last_ts = now
         return events
 

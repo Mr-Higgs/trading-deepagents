@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from trading_agent import engine
-from trading_agent.backtest_setup import build_simulated_backend, with_news_windows
+from trading_agent.backtest_setup import build_simulated_backend, load_fx_converter, with_news_windows
 from trading_agent.config import load_config
 from trading_agent.eventlog import EventLog
 from trading_agent.execution.simulated import SimulatedBackend
@@ -91,12 +91,14 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     cfg = with_news_windows(load_config(args.config))
     tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
     price = "BA" if cfg.risk.execution.price_mode == "bidask" else "M"
-    source = HistoricalOandaSource.from_oanda(OandaClient.from_env(), cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache, price=price)
+    client = OandaClient.from_env()
+    source = HistoricalOandaSource.from_oanda(client, cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache, price=price)
     strategy = _make_strategy(cfg, args.strategy, refresh=args.refresh, point_in_time=True)  # agent mode is cached => re-runs stay deterministic
     run_id = f"bt-{args.start}-{args.end}"
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
     log = EventLog(log_path, run_id=run_id, strategy_version=cfg.strategy_version)
-    equity = engine.run(source, strategy, RiskEngine(cfg.risk, cfg.pair), _simulated_backend(cfg), log, cfg, starting_equity=args.equity)
+    fx = load_fx_converter(cfg, client, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache)
+    equity = engine.run(source, strategy, RiskEngine(cfg.risk, cfg.pair, fx=fx), build_simulated_backend(cfg, fx), log, cfg, starting_equity=args.equity)
     log.close()
     print(f"backtest done: final equity {equity:.2f} | log {log_path}")
     print(f"render journal: uv run python -m trading_agent.journal {log_path}")

@@ -6,13 +6,15 @@ Shared by the `run backtest` CLI and the optimizer so both simulate identically.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from trading_agent.config import AppConfig
 from trading_agent.costs import CostModel, SpreadModel, WideningProfile
 from trading_agent.execution.simulated import SimulatedBackend
 from trading_agent.financing import load_financing_yaml
-from trading_agent.fx_convert import FxConverter
+from trading_agent.fx_convert import FxConverter, conversion_instrument
 from trading_agent.news import build_news_windows, load_calendar
 
 
@@ -60,3 +62,19 @@ def with_news_windows(cfg: AppConfig, *, root: Path | None = None) -> AppConfig:
     cal = load_calendar(base / na.calendar)
     auto = build_news_windows(cal, cfg.pair.symbol, minutes_before=na.minutes_before, minutes_after=na.minutes_after, impacts=na.impacts)
     return replace(cfg, risk=replace(cfg.risk, news_windows=(*cfg.risk.news_windows, *auto)))
+
+
+def load_fx_converter(cfg: AppConfig, client: Any, start: datetime, end: datetime, *, cache_dir: str | None = None) -> FxConverter | None:
+    """Point-in-time converter for quote->account P/L; `None` when the pair is quoted in the account currency.
+
+    Args:
+        cfg: App config (pair quote currency and account currency).
+        client: `OandaClient`-like object exposing `candles_cached`.
+        start: First bar needed.
+        end: Exclusive end.
+        cache_dir: Candle cache directory.
+    """
+    inst = conversion_instrument(cfg.pair.quote_ccy, cfg.risk.account_ccy)
+    if inst is None:
+        return None
+    return FxConverter({inst: client.candles_cached(inst, "H1", start, end, cache_dir, price="M")})
