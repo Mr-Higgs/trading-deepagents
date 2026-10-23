@@ -20,6 +20,7 @@ from trading_agent.backtest_setup import build_simulated_backend
 from trading_agent.config import AppConfig
 from trading_agent.eventlog import EventLog
 from trading_agent.execution.simulated import SimulatedBackend
+from trading_agent.marketdata.base import LIVE_LOOKBACK
 from trading_agent.marketdata.historical import HistoricalOandaSource
 from trading_agent.risk import RiskEngine
 from trading_agent.strategy import build_strategy
@@ -83,7 +84,7 @@ class Evaluator:
 
             msg = f"optimizer evaluation window ends {end.date()}, inside the locked holdout"
             raise HoldoutViolation(msg)
-        source = HistoricalOandaSource(self.frames, entry_tf=cfg.strategy.entry_tf, stream_start=start, stream_end=end)
+        source = HistoricalOandaSource(self.frames, entry_tf=cfg.strategy.entry_tf, stream_start=start, stream_end=end, lookback=LIVE_LOOKBACK)
         self.workdir.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(suffix=".jsonl", dir=self.workdir, delete=False) as fh:
             path = Path(fh.name)
