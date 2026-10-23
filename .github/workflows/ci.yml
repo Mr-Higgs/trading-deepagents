@@ -22,6 +22,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Required by dorny/paths-filter to list a PR's changed files via the API
+  pull-requests: read
   # Required for CodSpeed OIDC authentication in _benchmark.yml
   id-token: write
 
