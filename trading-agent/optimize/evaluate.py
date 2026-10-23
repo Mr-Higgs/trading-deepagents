@@ -107,7 +107,7 @@ def _close_at_boundary(backend: SimulatedBackend, log: EventLog) -> None:
     """Each fold starts flat on a fresh backend, so positions open at the window end are closed (marked to the
     executable close of the last bar) and logged; otherwise their P/L and exposure would vanish from the fold."""
     for ev in backend.liquidate():
-        log.write("EXIT", ts=ev.ts, reason=ev.exit_reason, trade_id=ev.trade_id, price=ev.price, units=ev.units, pnl=ev.pnl)
+        log.write("EXIT", ts=ev.ts, reason=ev.exit_reason, trade_id=ev.trade_id, price=ev.price, units=ev.units, pnl=ev.pnl, exit_reason=ev.exit_reason)
 
 
 def _trade_pnls(records: list[dict[str, Any]]) -> list[float]:
