@@ -16,6 +16,8 @@ import pandas as pd
 from trading_agent.types import Candle
 
 FRAME_COLUMNS = ["instrument", "tf", "open_time", "close_time", "o", "h", "l", "c", "volume", "complete"]
+# Optional bid/ask OHLC columns (present when candles were fetched with price="MBA"/"BA").
+BA_COLUMNS = ["bo", "bh", "bl", "bc", "ao", "ah", "al", "ac"]
 
 # OANDA candle granularities the system can fetch (codes are OANDA's own). Single source of truth:
 # oanda_client builds its request/delta map off this, config.py validates the triple-screen against it.
@@ -55,6 +57,9 @@ def candles_to_frame(candles: list[Candle]) -> pd.DataFrame:
     return normalize_frame(pd.DataFrame(rows, columns=FRAME_COLUMNS))
 
 
+LIVE_LOOKBACK = 250  # candles per timeframe the live poller fetches; backtests use the same window
+
+
 def closed_only(df: pd.DataFrame, now: datetime) -> pd.DataFrame:
     """Rows whose candle had closed by `now`. The lookahead firewall.
 
@@ -81,8 +86,21 @@ def window(df: pd.DataFrame, now: datetime, n: int) -> pd.DataFrame:
     return closed_only(df, now).tail(n)
 
 
+def has_bid_ask(df: pd.DataFrame) -> bool:
+    """True when a frame carries bid/ask OHLC columns (fetched with price="MBA")."""
+    return all(c in df.columns for c in BA_COLUMNS)
+
+
+def _ba(row: object) -> dict[str, float | None]:
+    out: dict[str, float | None] = {}
+    for col in BA_COLUMNS:
+        v = getattr(row, col, None)
+        out[col] = None if v is None or pd.isna(v) else float(v)
+    return out
+
+
 def row_to_candle(row: object) -> Candle:
-    """Build a Candle from an itertuples(index=False) row of a normalized frame."""
+    """Build a Candle from an itertuples(index=False) row of a normalized frame (bid/ask kept if present)."""
     return Candle(
         instrument=row.instrument,  # type: ignore[attr-defined]
         tf=row.tf,  # type: ignore[attr-defined]
@@ -94,4 +112,5 @@ def row_to_candle(row: object) -> Candle:
         c=float(row.c),  # type: ignore[attr-defined]
         volume=int(row.volume),  # type: ignore[attr-defined]
         complete=bool(row.complete),  # type: ignore[attr-defined]
+        **_ba(row),
     )

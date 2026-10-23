@@ -28,6 +28,19 @@ class Candle:
     c: float
     volume: int
     complete: bool
+    # Optional bid/ask OHLC (OANDA price="MBA"). None => mid-only candle; fills synthesize a spread.
+    bo: float | None = None
+    bh: float | None = None
+    bl: float | None = None
+    bc: float | None = None
+    ao: float | None = None
+    ah: float | None = None
+    al: float | None = None
+    ac: float | None = None
+
+    @property
+    def has_bid_ask(self) -> bool:
+        return self.bo is not None and self.ao is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,10 +79,10 @@ class TradeEvent:
 
     ts: datetime
     trade_id: str
-    kind: Literal["FILL", "EXIT"]
+    kind: Literal["FILL", "EXIT", "FINANCING"]
     price: float
     units: int
-    pnl: float | None = None  # set on EXIT
+    pnl: float | None = None  # set on EXIT / FINANCING, in ACCOUNT currency
     exit_reason: str | None = None  # "STOP" | "TP" | "MANUAL" | "SCALE_OUT" (set on EXIT)
     partial: bool = False  # True when a scale-out leg banks part of the position
     remaining_units: int | None = None  # signed units still open after a partial exit
@@ -115,3 +128,4 @@ class AccountState:
     equity: float
     balance: float
     open_positions: int = 0
+    margin_used: float = 0.0  # account-ccy margin already locked by open positions

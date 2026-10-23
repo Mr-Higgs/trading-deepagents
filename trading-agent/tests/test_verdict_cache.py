@@ -71,3 +71,12 @@ def test_refresh_bypasses_cache(tmp_path):
     orch2 = _CountingOrch(v)
     _agent(orch2, VerdictCache(path, refresh=True)).evaluate({}, NOW)
     assert orch2.calls == 1  # refresh ignores the populated cache and re-calls
+
+
+def test_point_in_time_runs_never_replay_live_verdicts(tmp_path):
+    v = Verdict(decision="approve", confidence=0.8, rationale="ok")
+    path = tmp_path / "vc.jsonl"
+    _agent(_CountingOrch(v), VerdictCache(path)).evaluate({}, NOW)  # legacy/live-data verdict cached
+    orch = _CountingOrch(v)
+    AgentStrategy(_Inner(), orch, pair=None, authority="gate", cache=VerdictCache(path), orchestrator_model="m", point_in_time=True).evaluate({}, NOW)
+    assert orch.calls == 1

@@ -40,6 +40,10 @@ class PairConfig:
     def pip_size(self) -> float:
         return 10.0**self.pip_location
 
+    @property
+    def base_ccy(self) -> str:
+        return self.symbol.split("_")[0]
+
 
 @dataclass(frozen=True)
 class SessionConfig:
@@ -54,6 +58,15 @@ class ExecutionConfig:
     backend: str  # "simulated" | "oanda"
     sim_spread_pips: float
     sim_slippage_pips: float
+    # Fill model. "legacy": flat (spread+slippage) charged once at entry, exits at mid (pre-realism behavior).
+    # "bidask": long fills at ask / exits at bid (shorts mirrored); uses real bid/ask candles when cached,
+    # otherwise mid +/- the cost model's half spread. "mid": force the synthesized-spread fallback even if BA exists.
+    price_mode: str = "legacy"
+    spread_model: str = "flat"  # "flat" | "profile" (rollover/Tokyo/weekend widening) | "fitted" (JSON table)
+    spread_table: str | None = None  # path (relative to config dir) to a fitted hour-of-week table
+    stop_slippage_pips: float | None = None  # None => sim_slippage_pips
+    widening: dict[str, float] = field(default_factory=dict)  # WideningProfile overrides
+    financing: bool = False  # apply rollover swap from financing.yaml
 
 
 @dataclass(frozen=True)
@@ -110,6 +123,20 @@ class RiskConfig:
     min_stop_pips: float = 0.0  # reject signals whose stop is tighter than this (avoids oversized positions + cost drag)
     min_rr: float = 1.0  # reject signals whose reward/risk ratio is below this floor
     management: ManagementConfig = field(default_factory=ManagementConfig)
+    leverage: float | None = None  # margin check off when None; e.g. 30 => 3.33% margin requirement
+    max_margin_usage: float = 1.0  # fraction of equity that open-position margin may consume
+    news_auto: NewsAutoConfig = field(default_factory=lambda: NewsAutoConfig())
+
+
+@dataclass(frozen=True)
+class NewsAutoConfig:
+    """Auto-built news blackout windows from a stored economic calendar (see `trading_agent.news`)."""
+
+    enabled: bool = False
+    calendar: str = "data/calendar/economic_calendar.csv"  # relative to the config dir's parent
+    minutes_before: int = 30
+    minutes_after: int = 30
+    impacts: tuple[str, ...] = ("High",)
 
 
 @dataclass(frozen=True)
@@ -240,6 +267,23 @@ def load_config(config_dir: str | Path) -> AppConfig:
         backend=ex["backend"],
         sim_spread_pips=float(ex["sim_spread_pips"]),
         sim_slippage_pips=float(ex["sim_slippage_pips"]),
+        price_mode=str(ex.get("price_mode", "legacy")),
+        spread_model=str(ex.get("spread_model", "flat")),
+        spread_table=ex.get("spread_table"),
+        stop_slippage_pips=None if ex.get("stop_slippage_pips") is None else float(ex["stop_slippage_pips"]),
+        widening={k: float(v) if not isinstance(v, list) else v for k, v in (ex.get("widening") or {}).items()},
+        financing=bool(ex.get("financing", False)),
+    )
+    if execution.price_mode not in {"legacy", "bidask", "mid"}:
+        msg = f"execution.price_mode must be legacy|bidask|mid, got {execution.price_mode!r}"
+        raise ValueError(msg)
+    na = risk_raw.get("news_auto") or {}
+    news_auto = NewsAutoConfig(
+        enabled=bool(na.get("enabled", False)),
+        calendar=str(na.get("calendar", NewsAutoConfig.calendar)),
+        minutes_before=int(na.get("minutes_before", 30)),
+        minutes_after=int(na.get("minutes_after", 30)),
+        impacts=tuple(na.get("impacts", ["High"])),
     )
     news = tuple(
         NewsWindow(
@@ -284,6 +328,9 @@ def load_config(config_dir: str | Path) -> AppConfig:
         min_stop_pips=float(risk_raw.get("min_stop_pips", 0.0)),
         min_rr=float(risk_raw.get("min_rr", 1.0)),
         management=management,
+        leverage=None if risk_raw.get("leverage") is None else float(risk_raw["leverage"]),
+        max_margin_usage=float(risk_raw.get("max_margin_usage", 1.0)),
+        news_auto=news_auto,
     )
 
     # A `style` expands to a preset triple-screen stack and wins; otherwise fall back to an explicit

@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from trading_agent import trade_management
 from trading_agent.config import ManagementConfig, ScaleLeg, ScaleOutConfig, load_config
 from trading_agent.execution.simulated import SimulatedBackend
-from trading_agent import trade_management
 from trading_agent.trade_management import compute_managed_stop, manage_open_trades
 from trading_agent.types import Candle, OpenTrade, OrderRequest
 
@@ -148,7 +148,7 @@ def test_scale_out_long_banks_at_kijun(monkeypatch):
     ich_df = pd.DataFrame({"kijun": [1.002], "senkou_a": [1.008], "tenkan": [1.001], "senkou_b": [0.99], "cloud_top": [1.01], "cloud_bottom": [0.99]})
     monkeypatch.setattr(tm, "ichimoku", lambda df, **kwargs: ich_df)  # noqa: ARG005
 
-    events = manage_open_trades(sim, _bar(1.0, 1.005, 1.0, 1.004), {"M15": frame}, T, cfg, _StubLog())
+    events = manage_open_trades(sim, _bar(1.0, 1.005, 1.0, 1.004), {cfg.strategy.entry_tf: frame}, T, cfg, _StubLog())
     assert len(events) == 1 and events[0].partial
     assert events[0].units == 500
     assert sim.open_positions()[0].remaining_units == 500

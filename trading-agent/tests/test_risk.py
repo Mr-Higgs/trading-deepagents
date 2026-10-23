@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timezone
 import pytest
 from conftest import make_account, make_day, make_pair, make_risk, make_signal
 
+from trading_agent.fx_convert import FxConverter, FxRateUnavailable
 from trading_agent.risk import RiskEngine, trading_day, update_day_state
 from trading_agent.types import TradeEvent
 
@@ -113,9 +114,36 @@ def test_daily_loss_gate_without_halt_flag():
     assert dec.reason == "daily_loss_breached"
 
 
-def test_quote_account_ccy_mismatch_raises():
-    with pytest.raises(ValueError, match="quote_ccy == account_ccy"):
-        RiskEngine(make_risk(), make_pair(quote_ccy="JPY"))
+def test_quote_account_mismatch_without_rate_raises_at_sizing():
+    eng = RiskEngine(make_risk(), make_pair(quote_ccy="JPY"))
+    with pytest.raises(FxRateUnavailable):
+        eng.evaluate(make_signal("LONG", 0.6700, 0.6680), make_account(), make_day(), NOW)
+
+
+def test_quote_account_mismatch_sizes_through_cross():
+    # Hand-built: quote JPY, account USD, USD_JPY = 150 => 1 JPY = 1/150 USD.
+    # $100 risk / (0.0020 JPY stop * 1/150) = 7_500_000 units (clamped to max).
+    pair = make_pair(quote_ccy="JPY", max_units=10_000_000)
+    eng = RiskEngine(make_risk(), pair, fx=FxConverter(static={"USD_JPY": 150.0}))
+    dec = eng.evaluate(make_signal("LONG", 0.6700, 0.6680), make_account(), make_day(), NOW)
+    assert dec.approved
+    assert abs(dec.units - 7_500_000) <= 1  # float floor noise on the 1/150 cross
+
+
+def test_margin_check_shrinks_units_to_free_margin():
+    # leverage 20 at 0.67 => 0.0335 USD margin/unit; 10000 equity * 0.5 usage => 149253 units cap.
+    eng = RiskEngine(make_risk(leverage=20.0, max_margin_usage=0.5), make_pair(max_units=1_000_000))
+    dec = eng.evaluate(make_signal("LONG", 0.6700, 0.6695), make_account(), make_day(), NOW)
+    assert dec.approved
+    assert dec.units == 149_253
+
+
+def test_margin_check_rejects_when_no_free_margin():
+    eng = RiskEngine(make_risk(leverage=20.0), make_pair())
+    acct = make_account()
+    acct.margin_used = 10_000.0
+    dec = eng.evaluate(make_signal("LONG", 0.6700, 0.6680), acct, make_day(), NOW)
+    assert dec.reason == "insufficient_margin"
 
 
 def test_tp_wrong_side_long_rejected():

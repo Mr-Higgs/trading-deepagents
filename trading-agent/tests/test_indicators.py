@@ -82,3 +82,21 @@ def test_price_dislocation_flags_stretch_and_flat():
     # A downside spike is symmetric (negative z), and too-short history is NaN (fail-soft).
     assert price_dislocation(pd.DataFrame({"c": [1.0] * 40 + [0.0]})) < -2.0
     assert pd.isna(price_dislocation(pd.DataFrame({"c": [1.0] * 5})))
+
+
+def test_ichimoku_matches_pandas_rolling_reference():
+    import numpy as np
+
+    rng = np.random.default_rng(7)
+    c = 0.66 + np.cumsum(rng.normal(0, 0.0004, 400))
+    df = pd.DataFrame({"h": c + rng.uniform(0, 0.0005, 400), "l": c - rng.uniform(0, 0.0005, 400), "c": c})
+    df.loc[150, "h"] = np.nan  # gaps propagate like rolling()
+
+    def mid(n):
+        return (df["h"].rolling(n).max() + df["l"].rolling(n).min()) / 2.0
+
+    ref = pd.DataFrame({"tenkan": mid(9), "kijun": mid(26), "senkou_a": ((mid(9) + mid(26)) / 2).shift(26), "senkou_b": mid(52).shift(26), "chikou": df["c"].shift(-26)})
+    ref["cloud_top"] = ref[["senkou_a", "senkou_b"]].max(axis=1)
+    ref["cloud_bottom"] = ref[["senkou_a", "senkou_b"]].min(axis=1)
+    pd.testing.assert_frame_equal(ichimoku(df), ref)
+    assert ichimoku(df.iloc[:5])["tenkan"].isna().all()

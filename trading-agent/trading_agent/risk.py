@@ -11,6 +11,7 @@ import math
 from datetime import date, datetime, time, timedelta, timezone
 
 from trading_agent.config import PairConfig, RiskConfig
+from trading_agent.fx_convert import FxConverter
 from trading_agent.types import AccountState, DayState, RiskDecision, Signal, TradeEvent
 
 
@@ -40,22 +41,31 @@ def update_day_state(day: DayState, ev: TradeEvent, equity: float, max_daily_los
 class RiskEngine:
     """Approves/sizes/rejects signals against the hard risk rules."""
 
-    def __init__(self, risk: RiskConfig, pair: PairConfig) -> None:
-        # v1 sizing (units = risk_amount / stop_distance) is only valid when the pair's quote
-        # currency equals the account currency. Fail loud rather than mis-size money.
-        if pair.quote_ccy != risk.account_ccy:
-            msg = (
-                f"sizing assumes quote_ccy == account_ccy, got quote={pair.quote_ccy} "
-                f"account={risk.account_ccy}; needs FX conversion before generalizing"
-            )
-            raise ValueError(msg)
+    def __init__(self, risk: RiskConfig, pair: PairConfig, *, fx: FxConverter | None = None) -> None:
+        """Args:
+        risk: Hard risk rules.
+        pair: Instrument being traded.
+        fx: Converts quote/base currency into the account currency for sizing and margin. Without
+            it, currencies that differ from the account currency raise `FxRateUnavailable` at sizing time.
+        """
         self.risk = risk
         self.pair = pair
+        self.fx = fx or FxConverter()
+
+    def quote_to_account(self, now: datetime) -> float:
+        """Account-currency value of one unit of the pair's quote currency at `now`."""
+        return self.fx.rate(self.pair.quote_ccy, self.risk.account_ccy, now)
+
+    def margin_per_unit(self, price: float, now: datetime) -> float:
+        """Account-currency margin for one unit (notional / leverage); 0 when the check is off."""
+        if not self.risk.leverage:
+            return 0.0
+        return price * self.quote_to_account(now) / self.risk.leverage
 
     def _reject(self, sig: Signal, reason: str) -> RiskDecision:
         return RiskDecision(approved=False, units=0, risk_amount=0.0, reason=reason, signal=sig)
 
-    def evaluate(self, sig: Signal, acct: AccountState, day: DayState, now: datetime) -> RiskDecision:  # noqa: ARG002 - `now` kept for interface symmetry / future news gating
+    def evaluate(self, sig: Signal, acct: AccountState, day: DayState, now: datetime) -> RiskDecision:
         r = self.risk
         # Rejection order matters: cheapest / highest-authority checks first.
         if r.kill_switch:
@@ -92,9 +102,15 @@ class RiskEngine:
         # Epsilon before floor absorbs float noise (0.6700-0.6680 is not exactly 0.002, which would
         # otherwise floor 50000 -> 49999). 1e-9 is far below one integer unit, so it only cancels
         # representation error. ponytail: switch to Decimal if sub-unit precision ever matters.
-        units_mag = math.floor(risk_amount / stop_distance + 1e-9)
+        units_mag = math.floor(risk_amount / (stop_distance * self.quote_to_account(now)) + 1e-9)
         if units_mag < self.pair.min_units:
             return self._reject(sig, "below_min_units")
         units_mag = min(units_mag, self.pair.max_units)
+        per_unit = self.margin_per_unit(sig.entry_ref, now)
+        if per_unit > 0:  # shrink to fit free margin rather than skip outright
+            free = acct.equity * r.max_margin_usage - acct.margin_used
+            units_mag = min(units_mag, math.floor(max(free, 0.0) / per_unit + 1e-9))
+            if units_mag < self.pair.min_units:
+                return self._reject(sig, "insufficient_margin")
         units = units_mag if sig.direction == "LONG" else -units_mag
         return RiskDecision(approved=True, units=units, risk_amount=risk_amount, reason="approved", signal=sig)
