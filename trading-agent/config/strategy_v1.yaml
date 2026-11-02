@@ -2,7 +2,7 @@
 version: "v2.0.0"            # WFX Refined Ichimoku: TK-cross entry + ATR stop + 2.55R
 instrument: AUD_USD
 name: ichimoku_pullback   # active strategy: "ichimoku_pullback" | "ichimoku_breakout" | "ichimoku_confluence"
-style: intraday   # trading style -> triple-screen stack: scalping M15/M5/M1 | intraday H1/M15/M5 | swing H4/H1/M15 | position D/H4/H1
+style: intraday   # trading style -> triple-screen stack: scalping M15/M5/M1 | intraday H1/M15/M15 | swing H4/H1/M15 | position D/H4/H1
 timeframes:    # fallback only: used when `style` is omitted. `style` (above) wins when present.
   trend: H4     # cloud direction = long/short bias
   bias: H1      # pullback context

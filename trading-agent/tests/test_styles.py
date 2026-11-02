@@ -31,6 +31,12 @@ def test_scalping_style_expands_stack(tmp_path: Path) -> None:
     assert s.style == "scalping"
 
 
+def test_intraday_style_enters_on_m15(tmp_path: Path) -> None:
+    cfg = load_config(_config(tmp_path, _set_style("style: intraday")))
+    s = cfg.strategy
+    assert (s.trend_tf, s.bias_tf, s.entry_tf) == ("H1", "M15", "M15")
+
+
 def test_position_style_expands_stack(tmp_path: Path) -> None:
     cfg = load_config(_config(tmp_path, _set_style("style: position")))
     s = cfg.strategy
