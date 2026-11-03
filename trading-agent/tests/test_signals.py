@@ -103,3 +103,57 @@ def test_htf_confluent_checks_only_timeframes_above_entry(monkeypatch):
     assert signals.htf_confluent({"H1": up, "M15": down}, cfg, "LONG")  # M15 is the entry tf: ignored
     assert not signals.htf_confluent({"H1": down, "M15": up}, cfg, "LONG")
     assert not signals.htf_confluent({"M15": up}, cfg, "LONG")  # missing higher tf fails closed
+
+
+def _ohlc(highs, lows, closes) -> pd.DataFrame:
+    return pd.DataFrame({"o": closes, "h": highs, "l": lows, "c": closes})
+
+
+def test_fib_golden_zone_needs_completed_leg_and_retrace():
+    # leg 1.00 -> 1.10, then a pullback close at 1.045 (0.55 retrace) => in zone for LONG only
+    df = _ohlc([1.00, 1.05, 1.10, 1.08, 1.05], [1.00, 1.03, 1.08, 1.05, 1.04], [1.00, 1.04, 1.09, 1.06, 1.045])
+    assert signals.fib_golden_zone(df, 10, "LONG")
+    assert not signals.fib_golden_zone(df, 10, "SHORT")
+    shallow = df.copy()
+    shallow.loc[shallow.index[-1], "c"] = 1.08  # only 0.2 retrace
+    assert not signals.fib_golden_zone(shallow, 10, "LONG")
+
+
+def test_touch_and_hold_and_swing_stop():
+    bar = pd.Series({"o": 1.02, "h": 1.03, "l": 0.999, "c": 1.02})
+    assert signals.touch_and_hold(bar, 1.0, "LONG")
+    assert not signals.touch_and_hold(bar, 1.0, "SHORT")
+    assert not signals.touch_and_hold(bar, float("nan"), "LONG")
+    df = _ohlc([1.0, 1.2, 1.1], [0.9, 0.95, 1.0], [1.0, 1.1, 1.05])
+    assert signals.swing_stop(df, 3, "LONG", 0.01) == 0.89
+    assert signals.swing_stop(df, 2, "SHORT", 0.01) == 1.21
+
+
+def test_close_crossed_only_on_the_crossing_bar():
+    df = _ohlc([1.0] * 3, [1.0] * 3, [0.99, 1.00, 1.02])
+    level = pd.Series([1.01, 1.01, 1.01])
+    assert signals.close_crossed(df, level, "LONG")
+    assert not signals.close_crossed(df, level, "SHORT")
+    assert not signals.close_crossed(df.iloc[:2], level.iloc[:2], "LONG")
+
+
+def test_quality_filters_reasons():
+    from dataclasses import replace
+
+    from conftest import make_strategy
+
+    n = 8
+    ichi = pd.DataFrame({
+        "tenkan": [1.0 + 0.001 * i for i in range(n)],
+        "kijun": [1.0 + 0.0005 * i for i in range(n)],
+        "senkou_a": [1.0 + 0.0002 * i for i in range(n)],
+        "senkou_b": [0.99] * n,
+    })
+    cfg = replace(make_strategy(), slope_lookback=5)
+    pip = 0.0001
+    assert signals.quality_ok(ichi, cfg, "LONG", pip) is None  # all thresholds 0 => off
+    assert signals.quality_ok(ichi, replace(cfg, min_tk_separation_pips=50), "LONG", pip) == "narrow_tk"
+    assert signals.quality_ok(ichi, replace(cfg, min_kijun_slope_pips=1), "SHORT", pip) == "flat_kijun"
+    assert signals.quality_ok(ichi, replace(cfg, min_cloud_thickness_pips=500), "LONG", pip) == "thin_cloud"
+    assert signals.quality_ok(ichi, replace(cfg, min_cloud_slope_pips=20), "LONG", pip) == "flat_cloud"
+    assert signals.quality_ok(ichi, replace(cfg, min_cloud_slope_pips=20), "LONG", pip, cloud=False) is None

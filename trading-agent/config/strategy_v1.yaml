@@ -1,5 +1,5 @@
 # Versioned strategy config. Bump `version` on any rule change; every trade is tagged with it.
-version: "v2.0.0"            # WFX Refined Ichimoku: TK-cross entry + ATR stop + 2.55R
+version: "v3.0.0"            # Ichimoku.pdf Setup #1 (pullback) / Setup #2 (breaking into the cloud) + quality filters
 instrument: AUD_USD
 name: ichimoku_pullback   # active strategy: "ichimoku_pullback" | "ichimoku_breakout" | "ichimoku_confluence"
 style: intraday   # trading style -> triple-screen stack: scalping M15/M5/M1 | intraday H4/H1/M15 | swing H4/H1/M15 | position D/H4/H1
@@ -13,13 +13,23 @@ ichimoku:                   # WFX-standard periods
   senkou_b: 52
   displacement: 26
 setup:
-  h1_pullback_band: 0.001   # (pullback strategy only) max distance from Tenkan/Kijun zone to count as a pullback
+  h1_pullback_band: 0.001   # (pullback strategy only) band around a zone line that still counts as a touch
+  pullback_zones: [fib, tenkan, kijun, span_a]  # (pullback) Setup #1 entry zones, any match: tk_band | fib | tenkan | kijun | span_a
+  fib_lookback: 40           # (pullback) bias-tf bars for the swing the 0.5-0.618 golden zone is drawn on
+  breakout_trigger: cloud    # (breakout) "tk_cross" (WFX) | "cloud" (close through the cloud) | "kijun" (quicker close through Kijun)
+  breakout_require_pattern: false  # (breakout) breakout candle must also match m15_trigger
+  min_tk_separation_pips: 2.0      # quality: |Tenkan - Kijun| (narrow = weak cross); 0 = off
+  min_kijun_slope_pips: 1.0        # quality: Kijun slope over slope_lookback bars in the trade direction; 0 = off
+  min_cloud_thickness_pips: 5.0    # quality: |Span A - Span B| on the direction tf (thin = fragile trend); 0 = off
+  min_cloud_slope_pips: 1.0        # quality: Span A slope over slope_lookback bars (flat = ranging); 0 = off
+  slope_lookback: 5
   m15_trigger: [engulfing, pin_bar, hammer, shooting_star, doji]   # (pullback strategy only) reversal candle(s); any match fires
   require_tk_momentum: true  # (pullback strategy only) Tenkan/Kijun must agree with the trade direction
   require_htf_confluence: true  # top-down: every tf above entry must have Tenkan/Kijun AND close/Kijun aligned with the trade
-  require_chikou: false      # WFX has no Chikou filter; the TK-cross is the trigger (breakout strategy)
-  stop_rule: atr             # "kijun" | "cloud" | "atr" — WFX uses an ATR volatility stop
-  stop_buffer_pips: 10.0      # (used only when stop_rule != "atr")
+  require_chikou: true       # Chikou above/below price 26 bars back (Ichimoku.pdf Setup #2 condition 3)
+  stop_rule: swing           # "kijun" | "cloud" | "atr" | "swing" (beyond last swing, Setup #1) | "candle" (beyond breakout candle, Setup #2)
+  stop_buffer_pips: 2.0       # (used only when stop_rule != "atr")
+  swing_lookback: 10          # entry-tf bars scanned for the swing behind a "swing" stop
   rr: 2.3                   # take-profit = entry +/- rr * stop_distance (WFX 2.55R)
   atr_length: 14             # WFX ATR lookback
   atr_mult: 2.75             # WFX stop distance = ATR(14) * 2.75

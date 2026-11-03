@@ -15,7 +15,8 @@ FIXED_RISK_FIELDS = ("risk_pct", "max_daily_loss_pct", "max_trades_per_day", "ki
 _STRATEGY_FIELDS = {
     "rr", "stop_rule", "stop_buffer_pips", "atr_length", "atr_mult", "exit_on_kijun_cross", "require_tk_momentum",
     "require_chikou", "require_htf_confluence", "min_trend_distance_pips", "h1_pullback_band", "breakout_ref", "breakout_lookback",
-    "retest_band_pips", "entry_trigger", "tp_mode", "confluence_min_score",
+    "retest_band_pips", "entry_trigger", "tp_mode", "confluence_min_score", "fib_lookback", "swing_lookback", "breakout_trigger",
+    "breakout_require_pattern", "min_tk_separation_pips", "min_kijun_slope_pips", "min_cloud_thickness_pips", "min_cloud_slope_pips",
 }
 _MANAGEMENT_FIELDS = {"breakeven_enabled", "breakeven_trigger_r", "breakeven_trigger_pips", "breakeven_buffer_pips", "trail_mode", "trail_buffer_pips", "trail_distance_pips"}
 _SPECIAL = {"partial_exit_pct"}  # fraction of the first scale-out leg; 0 disables scale-out
@@ -60,17 +61,27 @@ _MANAGEMENT_SPACE: Space = (
 )
 _COMMON: Space = (
     Param("rr", "float", 1.0, 4.0, 0.25),
-    Param("stop_rule", "cat", choices=("kijun", "cloud", "atr")),
+    Param("stop_rule", "cat", choices=("kijun", "cloud", "atr", "swing")),
+    Param("swing_lookback", "int", 4, 20, 2),
     Param("atr_mult", "float", 1.0, 4.0, 0.25),
     Param("stop_buffer_pips", "float", 0.0, 10.0, 1.0),
     Param("require_tk_momentum", "bool"),
     Param("require_chikou", "bool"),
     Param("require_htf_confluence", "bool"),
     Param("min_trend_distance_pips", "float", 0.0, 20.0, 2.0),
+    Param("min_tk_separation_pips", "float", 0.0, 10.0, 1.0),
+    Param("min_kijun_slope_pips", "float", 0.0, 10.0, 1.0),
+    Param("min_cloud_thickness_pips", "float", 0.0, 20.0, 2.0),
+    Param("min_cloud_slope_pips", "float", 0.0, 10.0, 1.0),
 )
 DEFAULT_SPACES: dict[str, Space] = {
-    "ichimoku_breakout": (*_COMMON, Param("breakout_ref", "cat", choices=("cloud", "base")), *_MANAGEMENT_SPACE),
-    "ichimoku_pullback": (*_COMMON, Param("h1_pullback_band", "float", 0.0, 0.01, 0.001), *_MANAGEMENT_SPACE),
+    "ichimoku_breakout": (
+        *_COMMON,
+        Param("breakout_trigger", "cat", choices=("tk_cross", "cloud", "kijun")),
+        Param("breakout_require_pattern", "bool"),
+        *_MANAGEMENT_SPACE,
+    ),
+    "ichimoku_pullback": (*_COMMON, Param("h1_pullback_band", "float", 0.0, 0.01, 0.001), Param("fib_lookback", "int", 20, 80, 10), *_MANAGEMENT_SPACE),
     "ichimoku_cloud_breakout": (*_COMMON, Param("breakout_lookback", "int", 3, 20), Param("retest_band_pips", "float", 2.0, 30.0, 2.0), *_MANAGEMENT_SPACE),
     "ichimoku_confluence": (*_COMMON, Param("confluence_min_score", "float", 2.0, 6.0, 0.5), Param("tp_mode", "cat", choices=("ichimoku_level", "rr")), *_MANAGEMENT_SPACE),
 }

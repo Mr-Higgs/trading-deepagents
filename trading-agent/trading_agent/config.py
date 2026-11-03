@@ -164,7 +164,7 @@ class StrategyConfig:
     ichimoku: IchimokuParams
     h1_pullback_band: float
     m15_trigger: tuple[str, ...]  # candlestick pattern(s) that trigger entry; any match fires
-    stop_rule: str  # "kijun" | "cloud" | "atr"
+    stop_rule: str  # "kijun" | "cloud" | "atr" | "swing" (beyond the last swing) | "candle" (beyond the trigger candle)
     stop_buffer_pips: float
     rr: float
     min_trend_distance_pips: float = 0.0  # v1.1: price must clear the cloud by this much (skip thin-cloud chop); 0 = no filter
@@ -188,6 +188,19 @@ class StrategyConfig:
     # ichimoku_cloud_breakout (only used when name == "ichimoku_cloud_breakout"; no-op defaults otherwise):
     breakout_lookback: int = 10  # bars to scan back for a cloud break before the retest
     retest_band_pips: float = 8.0  # how close price must pull back to the broken cloud edge to count as a retest
+    # v3.0 Ichimoku.pdf setups (no-op defaults keep v2 behavior):
+    pullback_zones: tuple[str, ...] = ("tk_band",)  # Setup #1 entry zones, any match: tk_band | fib | tenkan | kijun | span_a
+    fib_lookback: int = 40  # bias-tf bars scanned for the swing that the Fibonacci golden zone is drawn on
+    fib_low: float = 0.5  # golden zone = fib_low .. fib_high retracement of that swing
+    fib_high: float = 0.618
+    swing_lookback: int = 10  # entry-tf bars scanned for the swing low/high behind a "swing" stop
+    breakout_trigger: str = "tk_cross"  # Setup #2 trigger: "tk_cross" | "cloud" (close crosses the cloud) | "kijun" (close crosses Kijun above/below the cloud)
+    breakout_require_pattern: bool = False  # Setup #2: the breakout candle must also match `m15_trigger`
+    min_tk_separation_pips: float = 0.0  # quality: |Tenkan - Kijun| on the signal tf
+    min_kijun_slope_pips: float = 0.0  # quality: Kijun moved this far in the trade direction over `slope_lookback` bars
+    min_cloud_thickness_pips: float = 0.0  # quality: |Span A - Span B| on the direction tf (thin cloud = fragile trend)
+    min_cloud_slope_pips: float = 0.0  # quality: Span A moved this far in the trade direction over `slope_lookback` bars (flat = ranging)
+    slope_lookback: int = 5
 
 
 @dataclass(frozen=True)
@@ -388,6 +401,18 @@ def load_config(config_dir: str | Path) -> AppConfig:
         require_thinning_cloud=bool(setup.get("require_thinning_cloud", False)),
         breakout_lookback=int(setup.get("breakout_lookback", 10)),
         retest_band_pips=float(setup.get("retest_band_pips", 8.0)),
+        pullback_zones=tuple(setup["pullback_zones"]) if isinstance(setup.get("pullback_zones"), list) else (str(setup.get("pullback_zones", "tk_band")),),
+        fib_lookback=int(setup.get("fib_lookback", 40)),
+        fib_low=float(setup.get("fib_low", 0.5)),
+        fib_high=float(setup.get("fib_high", 0.618)),
+        swing_lookback=int(setup.get("swing_lookback", 10)),
+        breakout_trigger=str(setup.get("breakout_trigger", "tk_cross")),
+        breakout_require_pattern=bool(setup.get("breakout_require_pattern", False)),
+        min_tk_separation_pips=float(setup.get("min_tk_separation_pips", 0.0)),
+        min_kijun_slope_pips=float(setup.get("min_kijun_slope_pips", 0.0)),
+        min_cloud_thickness_pips=float(setup.get("min_cloud_thickness_pips", 0.0)),
+        min_cloud_slope_pips=float(setup.get("min_cloud_slope_pips", 0.0)),
+        slope_lookback=int(setup.get("slope_lookback", 5)),
     )
 
     if strategy.instrument not in pairs:

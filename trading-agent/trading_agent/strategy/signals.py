@@ -87,6 +87,90 @@ def htf_confluent(snapshot: dict[str, pd.DataFrame], cfg, direction: str) -> boo
     return True
 
 
+def _sign(direction: str) -> int:
+    return 1 if direction == "LONG" else -1
+
+
+def touch_and_hold(bar, level: float | None, direction: str, band: float = 0.0) -> bool:
+    """Bar tagged `level` (within `band`) and closed back on the trend side: a rejection of that line."""
+    lvl = _num(level)
+    if lvl is None:
+        return False
+    if direction == "LONG":
+        return float(bar["l"]) <= lvl + band and float(bar["c"]) > lvl
+    return float(bar["h"]) >= lvl - band and float(bar["c"]) < lvl
+
+
+def fib_golden_zone(df: pd.DataFrame, lookback: int, direction: str, lo: float = 0.5, hi: float = 0.618) -> bool:
+    """Latest close sits in the `lo`..`hi` retracement of the last impulse leg within `lookback` bars.
+
+    LONG: the leg runs from the lowest low up to the later highest high; the zone is measured down from that
+    high. SHORT mirrors. False when the extreme comes first (no completed leg in the trend direction).
+    """
+    w = df.iloc[-lookback:]
+    if len(w) < 3:
+        return False
+    hi_pos, lo_pos = int(w["h"].to_numpy().argmax()), int(w["l"].to_numpy().argmin())
+    top, bot = float(w["h"].iloc[hi_pos]), float(w["l"].iloc[lo_pos])
+    rng = top - bot
+    c = float(w["c"].iloc[-1])
+    if rng <= 0:
+        return False
+    if direction == "LONG":
+        return lo_pos < hi_pos < len(w) - 1 and top - hi * rng <= c <= top - lo * rng
+    return hi_pos < lo_pos < len(w) - 1 and bot + lo * rng <= c <= bot + hi * rng
+
+
+def swing_stop(df: pd.DataFrame, lookback: int, direction: str, buffer: float) -> float:
+    """Beyond the most recent swing: lowest low (LONG) / highest high (SHORT) over `lookback` bars, +/- buffer."""
+    w = df.iloc[-lookback:]
+    return float(w["l"].min()) - buffer if direction == "LONG" else float(w["h"].max()) + buffer
+
+
+def directional_slope(series: pd.Series, n: int, direction: str) -> float:
+    """Change of `series` over `n` bars, signed so a move in the trade direction is positive; -inf if unknown."""
+    if len(series) <= n:
+        return float("-inf")
+    now, past = _num(series.iloc[-1]), _num(series.iloc[-1 - n])
+    if now is None or past is None:
+        return float("-inf")
+    return (now - past) * _sign(direction)
+
+
+def close_crossed(df: pd.DataFrame, level: pd.Series, direction: str) -> bool:
+    """Close crossed `level` on the latest bar in the trade direction (prev close on/behind it)."""
+    if len(df) < 2 or len(level) < 2:
+        return False
+    pc, cc = _num(df["c"].iloc[-2]), _num(df["c"].iloc[-1])
+    pl, lv = _num(level.iloc[-2]), _num(level.iloc[-1])
+    prev_diff = None if (pc is None or pl is None) else pc - pl
+    now_diff = None if (cc is None or lv is None) else cc - lv
+    return _cross(prev_diff, now_diff) == ("up" if direction == "LONG" else "down")
+
+
+def quality_ok(ichi: pd.DataFrame, cfg, direction: str, pip: float, *, tk: bool = True, cloud: bool = True) -> str | None:
+    """Ichimoku.pdf signal-strength filters; returns the failing skip reason or None.
+
+    `tk`: Tenkan/Kijun separation and Kijun slope (a steep, wide cross is strong). `cloud`: cloud thickness and
+    Span A slope (a thin or flat cloud is a fragile / ranging market). Thresholds of 0 disable a check.
+    """
+    last = ichi.iloc[-1]
+    n = cfg.slope_lookback
+    if tk:
+        t, k = _num(last["tenkan"]), _num(last["kijun"])
+        if cfg.min_tk_separation_pips > 0 and (t is None or k is None or abs(t - k) < cfg.min_tk_separation_pips * pip):
+            return "narrow_tk"
+        if cfg.min_kijun_slope_pips > 0 and directional_slope(ichi["kijun"], n, direction) < cfg.min_kijun_slope_pips * pip:
+            return "flat_kijun"
+    if cloud:
+        a, b = _num(last["senkou_a"]), _num(last["senkou_b"])
+        if cfg.min_cloud_thickness_pips > 0 and (a is None or b is None or abs(a - b) < cfg.min_cloud_thickness_pips * pip):
+            return "thin_cloud"
+        if cfg.min_cloud_slope_pips > 0 and directional_slope(ichi["senkou_a"], n, direction) < cfg.min_cloud_slope_pips * pip:
+            return "flat_cloud"
+    return None
+
+
 def exit_cross(df: pd.DataFrame, ichi: pd.DataFrame, direction: str) -> bool:
     """WFX early exit for an OPEN position: close-vs-Kijun OR Tenkan-vs-Kijun crosses against it.
 

@@ -48,7 +48,7 @@ _STRAT_RULES: dict[str, Any] = {
     "name": ("choice", {"ichimoku_pullback", "ichimoku_breakout", "ichimoku_confluence"}),
     "style": ("choice", {"scalping", "intraday", "swing", "position"}),  # expands to the triple-screen stack in config.py
     "rr": ("num", 0.1, 10.0),
-    "stop_rule": ("choice", {"kijun", "cloud", "atr"}),
+    "stop_rule": ("choice", {"kijun", "cloud", "atr", "swing", "candle"}),
     "stop_buffer_pips": ("num", 0.0, 100.0),
     "atr_length": ("int", 1, 200),
     "atr_mult": ("num", 0.1, 10.0),

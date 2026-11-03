@@ -2,12 +2,15 @@
 
 Rule chain (each failure returns a distinct skip reason):
   1. Trend gate     - trend-tf price above cloud => LONG-only bias; below => SHORT-only; inside => skip.
-  2. Pullback       - bias-tf price pulled back into the Tenkan/Kijun zone (within a config band).
+  2. Pullback       - bias-tf price pulled back into any configured `pullback_zones` (Ichimoku.pdf Setup #1):
+                      tk_band (Tenkan/Kijun zone +/- band), fib (0.5-0.618 golden zone of the last leg), or a
+                      tenkan / kijun / span_a touch-and-hold. Optional quality filters (TK separation, Kijun and
+                      cloud slope, cloud thickness) skip weak trends.
   3. Confirmations  - (config-gated) Tenkan/Kijun momentum, Chikou vs price 26 bars ago, and top-down
                       confluence (Tenkan/Kijun and close/Kijun agree on every timeframe above entry).
   4. Entry trigger  - a candlestick pattern (engulfing/pin bar/...) on the entry tf back in the trend direction.
 Feature keys keep their historical `h4_*` / `h1_*` / `m15_*` names; they mean trend / bias / entry timeframe.
-On a pass: stop beyond Kijun (or cloud) +/- buffer, take-profit at rr * stop_distance.
+On a pass: stop beyond Kijun, cloud or the last entry-tf swing +/- buffer, take-profit at rr * stop_distance.
 """
 
 from __future__ import annotations
@@ -31,9 +34,30 @@ class IchimokuPullback:
         self.pair = pair
         self.version = strategy.version
 
-    def _ichimoku_last(self, df: pd.DataFrame) -> pd.Series:
+    def _ichi(self, df: pd.DataFrame) -> pd.DataFrame:
         p = self.cfg.ichimoku
-        return ichimoku(df, tenkan=p.tenkan, kijun=p.kijun, senkou_b=p.senkou_b, displacement=p.displacement).iloc[-1]
+        return ichimoku(df, tenkan=p.tenkan, kijun=p.kijun, senkou_b=p.senkou_b, displacement=p.displacement)
+
+    def _in_zone(self, bias: pd.DataFrame, bi: pd.Series, direction: str) -> bool:
+        cfg = self.cfg
+        bar = bias.iloc[-1]
+        close = float(bar["c"])
+        band = cfg.h1_pullback_band
+        for zone in cfg.pullback_zones:
+            if zone == "tk_band":
+                lo, hi = sorted((float(bi["tenkan"]), float(bi["kijun"])))
+                if lo - band <= close <= hi + band:
+                    return True
+            elif zone == "fib":
+                if signals.fib_golden_zone(bias, cfg.fib_lookback, direction, cfg.fib_low, cfg.fib_high):
+                    return True
+            elif zone in ("tenkan", "kijun", "span_a"):
+                if signals.touch_and_hold(bar, bi["senkou_a" if zone == "span_a" else zone], direction, band):
+                    return True
+            else:
+                msg = f"unknown pullback zone {zone!r}"
+                raise ValueError(msg)
+        return False
 
     def evaluate(self, snapshot: dict[str, pd.DataFrame], now: datetime) -> StrategyResult:  # noqa: PLR0911 - one return per rule-gate is the clearest form here
         cfg = self.cfg
@@ -44,7 +68,8 @@ class IchimokuPullback:
             return StrategyResult(None, "insufficient_history")
 
         # 1. H4 trend gate
-        ti = self._ichimoku_last(trend)
+        trend_ichi = self._ichi(trend)
+        ti = trend_ichi.iloc[-1]
         h4_close = float(trend["c"].iloc[-1])
         if pd.isna(ti["cloud_top"]) or pd.isna(ti["cloud_bottom"]):
             return StrategyResult(None, "insufficient_history")
@@ -62,16 +87,19 @@ class IchimokuPullback:
         if trend_distance < cfg.min_trend_distance_pips * self.pair.pip_size:
             return StrategyResult(None, "weak_trend")
 
-        # 2. H1 pullback into the Tenkan/Kijun zone
-        bi = self._ichimoku_last(bias)
+        # 2. bias-tf pullback into a configured zone
+        bias_ichi = self._ichi(bias)
+        bi = bias_ichi.iloc[-1]
         if pd.isna(bi["tenkan"]) or pd.isna(bi["kijun"]):
             return StrategyResult(None, "insufficient_history")
         h1_close = float(bias["c"].iloc[-1])
         tenkan, kijun = float(bi["tenkan"]), float(bi["kijun"])
-        zone_lo, zone_hi = min(tenkan, kijun), max(tenkan, kijun)
-        band = cfg.h1_pullback_band
-        if not (zone_lo - band <= h1_close <= zone_hi + band):
+        if not self._in_zone(bias, bi, direction):
             return StrategyResult(None, "no_pullback")
+        pip = self.pair.pip_size
+        weak = signals.quality_ok(trend_ichi, cfg, direction, pip, tk=False) or signals.quality_ok(bias_ichi, cfg, direction, pip, cloud=False)
+        if weak:
+            return StrategyResult(None, weak)
 
         # 3. v1.2 confirmations (config-gated; defaults off => v1.1 behavior)
         if cfg.require_tk_momentum and not ((tenkan > kijun) if direction == "LONG" else (tenkan < kijun)):
@@ -95,7 +123,9 @@ class IchimokuPullback:
         # Build the proposal
         entry_ref = cc
         buffer = cfg.stop_buffer_pips * self.pair.pip_size
-        if cfg.stop_rule == "cloud":
+        if cfg.stop_rule == "swing":
+            stop = signals.swing_stop(entry, cfg.swing_lookback, direction, buffer)
+        elif cfg.stop_rule == "cloud":
             stop = cloud_bottom - buffer if direction == "LONG" else cloud_top + buffer
         else:  # kijun
             stop = kijun - buffer if direction == "LONG" else kijun + buffer
@@ -125,6 +155,7 @@ class IchimokuPullback:
                 "h1_kijun": kijun,
                 "h1_tenkan_gt_kijun": tenkan > kijun,
                 "m15_trigger": list(cfg.m15_trigger),
+                "pullback_zones": list(cfg.pullback_zones),
                 "trend_distance": trend_distance,
                 "style": cfg.style,
                 "stack": f"{cfg.trend_tf}/{cfg.bias_tf}/{cfg.entry_tf}",

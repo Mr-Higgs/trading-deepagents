@@ -201,6 +201,32 @@ def test_breakout_no_tk_cross_skips():
     assert res.reason == "no_tk_cross"
 
 
+def test_breakout_cloud_trigger_needs_a_cross_this_bar():
+    from trading_agent.strategy.ichimoku_breakout import IchimokuBreakout
+
+    cfg = make_strategy(name="ichimoku_breakout", breakout_trigger="cloud")
+    trending = _ramp("M15", 120, 0.6700, 0.0002)  # already above the cloud: no cross on the last bar
+    assert IchimokuBreakout(cfg, make_pair()).evaluate({"M15": trending}, NOW).reason == "no_cloud_cross"
+    jump = _ramp("M15", 120, 0.6700, 0.0).copy()  # flat, then the last candle closes through the cloud
+    last = jump.index[-1]
+    jump.loc[last, ["h", "c"]] = 0.6720
+    res = IchimokuBreakout(cfg, make_pair()).evaluate({"M15": jump}, NOW)
+    assert res.signal is None and res.reason == "no_momentum"  # Tenkan == Kijun: Setup #2 condition 1 fails
+
+
+def test_pullback_swing_stop_and_zone_config():
+    snap = _snapshot("LONG")
+    eng = IchimokuPullback(make_strategy(stop_rule="swing", swing_lookback=2, stop_buffer_pips=1), make_pair())
+    res = eng.evaluate(snap, NOW)
+    assert res.signal is not None
+    assert abs(res.signal.stop - (float(snap["M15"]["l"].min()) - 0.0001)) < 1e-12
+    bad = IchimokuPullback(make_strategy(pullback_zones=("bogus",)), make_pair())
+    import pytest
+
+    with pytest.raises(ValueError, match="unknown pullback zone"):
+        bad.evaluate(snap, NOW)
+
+
 # ---- ichimoku_confluence (multi-TF gate; entries proven by the backtest, not brittle synthetic clouds) ----
 
 
