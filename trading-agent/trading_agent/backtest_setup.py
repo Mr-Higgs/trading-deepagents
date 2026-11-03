@@ -63,7 +63,7 @@ def with_news_windows(cfg: AppConfig, *, root: Path | None = None) -> AppConfig:
     if not (base / na.calendar).exists():
         warnings.warn(f"news_auto is enabled but {base / na.calendar} is missing: no news blackouts will apply", stacklevel=2)
     cal = load_calendar(base / na.calendar)
-    auto = build_news_windows(cal, cfg.pair.symbol, minutes_before=na.minutes_before, minutes_after=na.minutes_after, impacts=na.impacts)
+    auto = build_news_windows(cal, cfg.pair.symbol, minutes_before=na.minutes_before, minutes_after=na.minutes_after, impacts=na.impacts, impact_minutes=na.impact_minutes)
     return replace(cfg, risk=replace(cfg.risk, news_windows=(*cfg.risk.news_windows, *auto)))
 
 

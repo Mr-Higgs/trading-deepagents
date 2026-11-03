@@ -141,6 +141,7 @@ class NewsAutoConfig:
     minutes_before: int = 30
     minutes_after: int = 30
     impacts: tuple[str, ...] = ("High",)
+    impact_minutes: dict[str, tuple[int, int]] = field(default_factory=dict)  # per-impact (before, after) override
 
 
 @dataclass(frozen=True)
@@ -312,6 +313,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         minutes_before=int(na.get("minutes_before", 30)),
         minutes_after=int(na.get("minutes_after", 30)),
         impacts=tuple(na.get("impacts", ["High"])),
+        impact_minutes={str(k): (int(v[0]), int(v[1])) for k, v in (na.get("impact_minutes") or {}).items()},
     )
     news = tuple(
         NewsWindow(

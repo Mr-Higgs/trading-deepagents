@@ -14,7 +14,8 @@ news_auto:                      # blackouts auto-built from the stored calendar 
   calendar: data/calendar/economic_calendar.csv   # columns: time,currency,impact,title[,forecast,previous,actual,published]
   minutes_before: 30
   minutes_after: 30
-  impacts: [High]
+  impacts: [High, Medium]       # Economic News.pdf list = High; secondary releases = Medium
+  impact_minutes: {High: [30, 30], Medium: [15, 15]}   # per-event before_min/after_min columns win (FOMC 30/90, RBA 30/60)
 sizing_cost_pips: 1.5           # expected entry cost (half spread + slippage) + stop slippage, added to the stop distance for sizing and min_rr
 leverage: 50                    # margin check: notional/leverage must fit in equity*max_margin_usage (null => off)
 max_margin_usage: 1.0
