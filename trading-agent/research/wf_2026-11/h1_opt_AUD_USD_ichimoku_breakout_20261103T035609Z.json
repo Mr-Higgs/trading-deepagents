@@ -1,0 +1,714 @@
+{
+  "meta": {
+    "pair": "AUD_USD",
+    "strategy": "ichimoku_breakout",
+    "start": "2022-01-01",
+    "end": "2026-07-01",
+    "holdout_start": "2026-07-01",
+    "anchored": false,
+    "train_months": 12,
+    "test_months": 3,
+    "price_mode": "bidask",
+    "entry_tf": "H1",
+    "space": "default"
+  },
+  "settings": {
+    "trials": 140,
+    "objective": "sharpe",
+    "min_trades": 30,
+    "radius": 0.15,
+    "min_neighbors": 3,
+    "seed": 7,
+    "pbo_splits": 16,
+    "jobs": 2
+  },
+  "summary": {
+    "oos_trades": 28,
+    "oos_expectancy": 0.8395767506048524,
+    "oos_expectancy_ci95": [
+      -52.20900075092267,
+      62.03080114137558
+    ],
+    "oos_sharpe_ann": 0.006133936635940393,
+    "oos_sharpe_ann_ci95": [
+      -1.1947661590532668,
+      0.9204955375303058
+    ],
+    "oos_total_pnl": 23.508149016935867,
+    "deflated_sharpe": 4.147947833765819e-06,
+    "pbo_mean": 0.3327596006863404,
+    "n_trials": 140,
+    "folds": 14
+  },
+  "folds": [
+    {
+      "train": [
+        "2022-01-01T00:00:00+00:00",
+        "2023-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-01-01T00:00:00+00:00",
+        "2023-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.0,
+        "stop_rule": "atr",
+        "swing_lookback": 20,
+        "atr_mult": 1.5,
+        "stop_buffer_pips": 8.0,
+        "require_tk_momentum": true,
+        "require_chikou": false,
+        "require_htf_confluence": false,
+        "require_regime": true,
+        "min_trend_distance_pips": 10.0,
+        "min_tk_separation_pips": 7.0,
+        "min_kijun_slope_pips": 10.0,
+        "min_cloud_thickness_pips": 14.0,
+        "min_cloud_slope_pips": 0.0,
+        "quality_min_pass": 1,
+        "breakout_trigger": "kijun",
+        "breakout_require_pattern": false,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 15.0,
+        "breakeven_trigger_r": 1.5,
+        "trail_mode": "kijun",
+        "trail_distance_pips": 12.5,
+        "partial_exit_pct": 0.75
+      },
+      "train_score": -0.41524922495212413,
+      "plateau_score": -1000000.0,
+      "pbo": 0.5866452991453295,
+      "oos": {
+        "trades": 7,
+        "expectancy": -83.97706453908074,
+        "profit_factor": 0.0024435776911020434,
+        "sharpe": -3.481723393449673,
+        "max_drawdown_pct": 0.05878394517735641,
+        "total_pnl": -587.8394517735652
+      }
+    },
+    {
+      "train": [
+        "2022-04-01T00:00:00+00:00",
+        "2023-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-04-01T00:00:00+00:00",
+        "2023-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.75,
+        "stop_rule": "kijun",
+        "swing_lookback": 4,
+        "atr_mult": 2.25,
+        "stop_buffer_pips": 4.0,
+        "require_tk_momentum": false,
+        "require_chikou": false,
+        "require_htf_confluence": false,
+        "require_regime": false,
+        "min_trend_distance_pips": 6.0,
+        "min_tk_separation_pips": 10.0,
+        "min_kijun_slope_pips": 3.0,
+        "min_cloud_thickness_pips": 4.0,
+        "min_cloud_slope_pips": 0.0,
+        "quality_min_pass": 4,
+        "breakout_trigger": "cloud",
+        "breakout_require_pattern": true,
+        "breakeven_enabled": false,
+        "breakeven_trigger_pips": 0.0,
+        "breakeven_trigger_r": 2.0,
+        "trail_mode": "off",
+        "trail_distance_pips": 10.0,
+        "partial_exit_pct": 0.0
+      },
+      "train_score": -1.3515874073152698,
+      "plateau_score": -1000000.0,
+      "pbo": 0.7624889924889889,
+      "oos": {
+        "trades": 0,
+        "expectancy": 0.0,
+        "profit_factor": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_pnl": 0
+      }
+    },
+    {
+      "train": [
+        "2022-07-01T00:00:00+00:00",
+        "2023-07-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-07-01T00:00:00+00:00",
+        "2023-10-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 2.75,
+        "stop_rule": "atr",
+        "swing_lookback": 6,
+        "atr_mult": 2.25,
+        "stop_buffer_pips": 8.0,
+        "require_tk_momentum": true,
+        "require_chikou": false,
+        "require_htf_confluence": false,
+        "require_regime": false,
+        "min_trend_distance_pips": 18.0,
+        "min_tk_separation_pips": 5.0,
+        "min_kijun_slope_pips": 4.0,
+        "min_cloud_thickness_pips": 2.0,
+        "min_cloud_slope_pips": 8.0,
+        "quality_min_pass": 4,
+        "breakout_trigger": "kijun",
+        "breakout_require_pattern": false,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 0.0,
+        "breakeven_trigger_r": 0.5,
+        "trail_mode": "kijun",
+        "trail_distance_pips": 27.5,
+        "partial_exit_pct": 0.75
+      },
+      "train_score": 0.1170460393384236,
+      "plateau_score": -1000000.0,
+      "pbo": 0.25765345765345765,
+      "oos": {
+        "trades": 1,
+        "expectancy": -1.2203192949043018,
+        "profit_factor": 0.0,
+        "sharpe": -1.968990369941681,
+        "max_drawdown_pct": 0.0001220319294904515,
+        "total_pnl": -1.2203192949043018
+      }
+    },
+    {
+      "train": [
+        "2022-10-01T00:00:00+00:00",
+        "2023-10-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-10-01T00:00:00+00:00",
+        "2024-01-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.5,
+        "stop_rule": "atr",
+        "swing_lookback": 18,
+        "atr_mult": 3.0,
+        "stop_buffer_pips": 0.0,
+        "require_tk_momentum": false,
+        "require_chikou": true,
+        "require_htf_confluence": true,
+        "require_regime": false,
+        "min_trend_distance_pips": 18.0,
+        "min_tk_separation_pips": 8.0,
+        "min_kijun_slope_pips": 5.0,
+        "min_cloud_thickness_pips": 8.0,
+        "min_cloud_slope_pips": 1.0,
+        "quality_min_pass": 1,
+        "breakout_trigger": "cloud",
+        "breakout_require_pattern": true,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 15.0,
+        "breakeven_trigger_r": 2.25,
+        "trail_mode": "kijun",
+        "trail_distance_pips": 10.0,
+        "partial_exit_pct": 0.0
+      },
+      "train_score": -2.7953382462234893,
+      "plateau_score": -1000000.0,
+      "pbo": 0.0017543859649122911,
+      "oos": {
+        "trades": 2,
+        "expectancy": 112.66870328039832,
+        "profit_factor": 3.2672832533730816,
+        "sharpe": 1.304884245121075,
+        "max_drawdown_pct": 0.01001626870488359,
+        "total_pnl": 225.33740656079664
+      }
+    },
+    {
+      "train": [
+        "2023-01-01T00:00:00+00:00",
+        "2024-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-01-01T00:00:00+00:00",
+        "2024-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.5,
+        "stop_rule": "atr",
+        "swing_lookback": 18,
+        "atr_mult": 2.5,
+        "stop_buffer_pips": 3.0,
+        "require_tk_momentum": false,
+        "require_chikou": true,
+        "require_htf_confluence": false,
+        "require_regime": true,
+        "min_trend_distance_pips": 14.0,
+        "min_tk_separation_pips": 1.0,
+        "min_kijun_slope_pips": 8.0,
+        "min_cloud_thickness_pips": 12.0,
+        "min_cloud_slope_pips": 5.0,
+        "quality_min_pass": 1,
+        "breakout_trigger": "kijun",
+        "breakout_require_pattern": true,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 0.0,
+        "breakeven_trigger_r": 1.25,
+        "trail_mode": "kijun",
+        "trail_distance_pips": 5.0,
+        "partial_exit_pct": 0.25
+      },
+      "train_score": -1.9987845906546136,
+      "plateau_score": -1000000.0,
+      "pbo": 0.28798749794943956,
+      "oos": {
+        "trades": 1,
+        "expectancy": -102.09627100105493,
+        "profit_factor": 0.0,
+        "sharpe": -2.0279348479422996,
+        "max_drawdown_pct": 0.010209627100105423,
+        "total_pnl": -102.09627100105493
+      }
+    },
+    {
+      "train": [
+        "2023-04-01T00:00:00+00:00",
+        "2024-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-04-01T00:00:00+00:00",
+        "2024-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 2.75,
+        "stop_rule": "atr",
+        "swing_lookback": 6,
+        "atr_mult": 1.5,
+        "stop_buffer_pips": 1.0,
+        "require_tk_momentum": false,
+        "require_chikou": true,
+        "require_htf_confluence": true,
+        "require_regime": true,
+        "min_trend_distance_pips": 4.0,
+        "min_tk_separation_pips": 8.0,
+        "min_kijun_slope_pips": 3.0,
+        "min_cloud_thickness_pips": 14.0,
+        "min_cloud_slope_pips": 7.0,
+        "quality_min_pass": 1,
+        "breakout_trigger": "cloud",
+        "breakout_require_pattern": false,
+        "breakeven_enabled": false,
+        "breakeven_trigger_pips": 10.0,
+        "breakeven_trigger_r": 1.25,
+        "trail_mode": "pips",
+        "trail_distance_pips": 5.0,
+        "partial_exit_pct": 0.75
+      },
+      "train_score": -1.972442152300305,
+      "plateau_score": -1000000.0,
+      "pbo": 0.3091387398595335,
+      "oos": {
+        "trades": 3,
+        "expectancy": -97.93404105530634,
+        "profit_factor": 0.0,
+        "sharpe": -3.4439252612629354,
+        "max_drawdown_pct": 0.029380212316591825,
+        "total_pnl": -293.802123165919
+      }
+    },
+    {
+      "train": [
+        "2023-07-01T00:00:00+00:00",
+        "2024-07-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-07-01T00:00:00+00:00",
+        "2024-10-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.5,
+        "stop_rule": "atr",
+        "swing_lookback": 10,
+        "atr_mult": 1.25,
+        "stop_buffer_pips": 1.0,
+        "require_tk_momentum": true,
+        "require_chikou": false,
+        "require_htf_confluence": true,
+        "require_regime": true,
+        "min_trend_distance_pips": 14.0,
+        "min_tk_separation_pips": 0.0,
+        "min_kijun_slope_pips": 4.0,
+        "min_cloud_thickness_pips": 2.0,
+        "min_cloud_slope_pips": 3.0,
+        "quality_min_pass": 1,
+        "breakout_trigger": "kijun",
+        "breakout_require_pattern": true,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 10.0,
+        "breakeven_trigger_r": 0.75,
+        "trail_mode": "off",
+        "trail_distance_pips": 25.0,
+        "partial_exit_pct": 0.0
+      },
+      "train_score": 0.11079099865698891,
+      "plateau_score": -1000000.0,
+      "pbo": 0.630660697327309,
+      "oos": {
+        "trades": 1,
+        "expectancy": -99.99934583124698,
+        "profit_factor": 0.0,
+        "sharpe": -1.9393798054663627,
+        "max_drawdown_pct": 0.009999934583124648,
+        "total_pnl": -99.99934583124698
+      }
+    },
+    {
+      "train": [
+        "2023-10-01T00:00:00+00:00",
+        "2024-10-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-10-01T00:00:00+00:00",
+        "2025-01-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.75,
+        "stop_rule": "swing",
+        "swing_lookback": 10,
+        "atr_mult": 2.0,
+        "stop_buffer_pips": 1.0,
+        "require_tk_momentum": false,
+        "require_chikou": true,
+        "require_htf_confluence": false,
+        "require_regime": false,
+        "min_trend_distance_pips": 8.0,
+        "min_tk_separation_pips": 6.0,
+        "min_kijun_slope_pips": 9.0,
+        "min_cloud_thickness_pips": 8.0,
+        "min_cloud_slope_pips": 8.0,
+        "quality_min_pass": 1,
+        "breakout_trigger": "tk_cross",
+        "breakout_require_pattern": true,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 5.0,
+        "breakeven_trigger_r": 1.5,
+        "trail_mode": "kijun",
+        "trail_distance_pips": 30.0,
+        "partial_exit_pct": 0.75
+      },
+      "train_score": 0.35396404266165005,
+      "plateau_score": -1000000.0,
+      "pbo": 0.04094038677372011,
+      "oos": {
+        "trades": 2,
+        "expectancy": -49.617674999998755,
+        "profit_factor": 0.015114883835871312,
+        "sharpe": -1.9235055514924588,
+        "max_drawdown_pct": 0.010075829999999786,
+        "total_pnl": -99.23534999999751
+      }
+    },
+    {
+      "train": [
+        "2024-01-01T00:00:00+00:00",
+        "2025-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-01-01T00:00:00+00:00",
+        "2025-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 2.75,
+        "stop_rule": "cloud",
+        "swing_lookback": 16,
+        "atr_mult": 3.5,
+        "stop_buffer_pips": 8.0,
+        "require_tk_momentum": true,
+        "require_chikou": false,
+        "require_htf_confluence": true,
+        "require_regime": false,
+        "min_trend_distance_pips": 18.0,
+        "min_tk_separation_pips": 5.0,
+        "min_kijun_slope_pips": 3.0,
+        "min_cloud_thickness_pips": 16.0,
+        "min_cloud_slope_pips": 5.0,
+        "quality_min_pass": 2,
+        "breakout_trigger": "kijun",
+        "breakout_require_pattern": false,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 0.0,
+        "breakeven_trigger_r": 1.5,
+        "trail_mode": "off",
+        "trail_distance_pips": 17.5,
+        "partial_exit_pct": 0.0
+      },
+      "train_score": 0.7910089134468233,
+      "plateau_score": -1000000.0,
+      "pbo": 0.32070707070710924,
+      "oos": {
+        "trades": 4,
+        "expectancy": 161.44837125000626,
+        "profit_factor": 7.091917807521591,
+        "sharpe": 2.8881022681534017,
+        "max_drawdown_pct": 0.010096792814522842,
+        "total_pnl": 645.793485000025
+      }
+    },
+    {
+      "train": [
+        "2024-04-01T00:00:00+00:00",
+        "2025-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-04-01T00:00:00+00:00",
+        "2025-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 4.0,
+        "stop_rule": "atr",
+        "swing_lookback": 20,
+        "atr_mult": 3.5,
+        "stop_buffer_pips": 7.0,
+        "require_tk_momentum": true,
+        "require_chikou": true,
+        "require_htf_confluence": false,
+        "require_regime": false,
+        "min_trend_distance_pips": 2.0,
+        "min_tk_separation_pips": 7.0,
+        "min_kijun_slope_pips": 5.0,
+        "min_cloud_thickness_pips": 0.0,
+        "min_cloud_slope_pips": 1.0,
+        "quality_min_pass": 0,
+        "breakout_trigger": "kijun",
+        "breakout_require_pattern": false,
+        "breakeven_enabled": false,
+        "breakeven_trigger_pips": 15.0,
+        "breakeven_trigger_r": 0.5,
+        "trail_mode": "off",
+        "trail_distance_pips": 30.0,
+        "partial_exit_pct": 0.0
+      },
+      "train_score": -1.9689269871571762,
+      "plateau_score": -1000000.0,
+      "pbo": 0.15217391304354597,
+      "oos": {
+        "trades": 2,
+        "expectancy": 116.78311840311518,
+        "profit_factor": 3.321352041112024,
+        "sharpe": 1.2900813536950173,
+        "max_drawdown_pct": 0.010615740319377176,
+        "total_pnl": 233.56623680623036
+      }
+    },
+    {
+      "train": [
+        "2024-07-01T00:00:00+00:00",
+        "2025-07-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-07-01T00:00:00+00:00",
+        "2025-10-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 2.5,
+        "stop_rule": "cloud",
+        "swing_lookback": 8,
+        "atr_mult": 2.5,
+        "stop_buffer_pips": 9.0,
+        "require_tk_momentum": true,
+        "require_chikou": false,
+        "require_htf_confluence": true,
+        "require_regime": false,
+        "min_trend_distance_pips": 12.0,
+        "min_tk_separation_pips": 0.0,
+        "min_kijun_slope_pips": 6.0,
+        "min_cloud_thickness_pips": 8.0,
+        "min_cloud_slope_pips": 2.0,
+        "quality_min_pass": 0,
+        "breakout_trigger": "tk_cross",
+        "breakout_require_pattern": false,
+        "breakeven_enabled": false,
+        "breakeven_trigger_pips": 5.0,
+        "breakeven_trigger_r": 2.5,
+        "trail_mode": "off",
+        "trail_distance_pips": 20.0,
+        "partial_exit_pct": 0.5
+      },
+      "train_score": 0.07359158254286156,
+      "plateau_score": -1000000.0,
+      "pbo": 0.24775224775224583,
+      "oos": {
+        "trades": 0,
+        "expectancy": 0.0,
+        "profit_factor": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_pnl": 0
+      }
+    },
+    {
+      "train": [
+        "2024-10-01T00:00:00+00:00",
+        "2025-10-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-10-01T00:00:00+00:00",
+        "2026-01-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.25,
+        "stop_rule": "atr",
+        "swing_lookback": 16,
+        "atr_mult": 2.75,
+        "stop_buffer_pips": 10.0,
+        "require_tk_momentum": false,
+        "require_chikou": false,
+        "require_htf_confluence": true,
+        "require_regime": false,
+        "min_trend_distance_pips": 20.0,
+        "min_tk_separation_pips": 10.0,
+        "min_kijun_slope_pips": 4.0,
+        "min_cloud_thickness_pips": 8.0,
+        "min_cloud_slope_pips": 3.0,
+        "quality_min_pass": 0,
+        "breakout_trigger": "kijun",
+        "breakout_require_pattern": false,
+        "breakeven_enabled": false,
+        "breakeven_trigger_pips": 10.0,
+        "breakeven_trigger_r": 0.75,
+        "trail_mode": "pips",
+        "trail_distance_pips": 5.0,
+        "partial_exit_pct": 0.0
+      },
+      "train_score": 0.0325536540595846,
+      "plateau_score": -1000000.0,
+      "pbo": 0.3159440559440557,
+      "oos": {
+        "trades": 0,
+        "expectancy": 0.0,
+        "profit_factor": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_pnl": 0
+      }
+    },
+    {
+      "train": [
+        "2025-01-01T00:00:00+00:00",
+        "2026-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2026-01-01T00:00:00+00:00",
+        "2026-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 2.25,
+        "stop_rule": "cloud",
+        "swing_lookback": 10,
+        "atr_mult": 1.0,
+        "stop_buffer_pips": 2.0,
+        "require_tk_momentum": true,
+        "require_chikou": true,
+        "require_htf_confluence": false,
+        "require_regime": false,
+        "min_trend_distance_pips": 0.0,
+        "min_tk_separation_pips": 1.0,
+        "min_kijun_slope_pips": 6.0,
+        "min_cloud_thickness_pips": 16.0,
+        "min_cloud_slope_pips": 7.0,
+        "quality_min_pass": 1,
+        "breakout_trigger": "cloud",
+        "breakout_require_pattern": true,
+        "breakeven_enabled": false,
+        "breakeven_trigger_pips": 15.0,
+        "breakeven_trigger_r": 1.5,
+        "trail_mode": "pips",
+        "trail_distance_pips": 17.5,
+        "partial_exit_pct": 0.0
+      },
+      "train_score": -1.4090056358263034,
+      "plateau_score": -1000000.0,
+      "pbo": 0.393439013650466,
+      "oos": {
+        "trades": 5,
+        "expectancy": 20.600776343314333,
+        "profit_factor": 1.3380457793216332,
+        "sharpe": 0.6286396750922052,
+        "max_drawdown_pct": 0.019859383884139502,
+        "total_pnl": 103.00388171657167
+      }
+    },
+    {
+      "train": [
+        "2025-04-01T00:00:00+00:00",
+        "2026-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2026-04-01T00:00:00+00:00",
+        "2026-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "rr": 3.75,
+        "stop_rule": "swing",
+        "swing_lookback": 16,
+        "atr_mult": 3.25,
+        "stop_buffer_pips": 4.0,
+        "require_tk_momentum": false,
+        "require_chikou": true,
+        "require_htf_confluence": false,
+        "require_regime": true,
+        "min_trend_distance_pips": 16.0,
+        "min_tk_separation_pips": 8.0,
+        "min_kijun_slope_pips": 9.0,
+        "min_cloud_thickness_pips": 4.0,
+        "min_cloud_slope_pips": 1.0,
+        "quality_min_pass": 3,
+        "breakout_trigger": "cloud",
+        "breakout_require_pattern": true,
+        "breakeven_enabled": true,
+        "breakeven_trigger_pips": 0.0,
+        "breakeven_trigger_r": 1.5,
+        "trail_mode": "pips",
+        "trail_distance_pips": 27.5,
+        "partial_exit_pct": 0.75
+      },
+      "train_score": 0.10272492785934499,
+      "plateau_score": -1000000.0,
+      "pbo": 0.35134865134865206,
+      "oos": {
+        "trades": 0,
+        "expectancy": 0.0,
+        "profit_factor": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "total_pnl": 0
+      }
+    }
+  ],
+  "recommended_params": {
+    "rr": 3.75,
+    "stop_rule": "swing",
+    "swing_lookback": 16,
+    "atr_mult": 3.25,
+    "stop_buffer_pips": 4.0,
+    "require_tk_momentum": false,
+    "require_chikou": true,
+    "require_htf_confluence": false,
+    "require_regime": true,
+    "min_trend_distance_pips": 16.0,
+    "min_tk_separation_pips": 8.0,
+    "min_kijun_slope_pips": 9.0,
+    "min_cloud_thickness_pips": 4.0,
+    "min_cloud_slope_pips": 1.0,
+    "quality_min_pass": 3,
+    "breakout_trigger": "cloud",
+    "breakout_require_pattern": true,
+    "breakeven_enabled": true,
+    "breakeven_trigger_pips": 0.0,
+    "breakeven_trigger_r": 1.5,
+    "trail_mode": "pips",
+    "trail_distance_pips": 27.5,
+    "partial_exit_pct": 0.75
+  }
+}
