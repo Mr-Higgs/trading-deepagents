@@ -7,8 +7,8 @@ elsewhere). Two identical runs must produce byte-identical JSONL.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 import json
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 
 import pytest

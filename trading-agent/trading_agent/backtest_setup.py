@@ -6,7 +6,6 @@ Shared by the `run backtest` CLI and the optimizer so both simulate identically.
 from __future__ import annotations
 
 import warnings
-
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
