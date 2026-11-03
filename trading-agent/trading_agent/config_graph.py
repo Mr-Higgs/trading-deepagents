@@ -63,6 +63,7 @@ _STRAT_RULES: dict[str, Any] = {
     "m15_trigger": ("patterns", _PATTERN_NAMES),
     "require_tk_momentum": ("bool",),
     "require_chikou": ("bool",),
+    "require_regime": ("bool",),
     "breakout_ref": ("choice", {"cloud", "base"}),
     "tenkan": ("int", 1, 200),
     "kijun": ("int", 1, 200),
@@ -113,6 +114,8 @@ def _current() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         "trend_tf": s.trend_tf,  # read-only (derived from style)
         "bias_tf": s.bias_tf,  # read-only (derived from style)
         "entry_tf": s.entry_tf,  # read-only (derived from style)
+        "regime_tf": s.regime_tf,  # read-only (derived from style)
+        "require_regime": s.require_regime,
         "name": s.name,
         "m15_trigger": list(s.m15_trigger),
         "require_tk_momentum": s.require_tk_momentum,

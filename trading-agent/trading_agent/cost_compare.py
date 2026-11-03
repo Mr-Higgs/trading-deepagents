@@ -80,7 +80,7 @@ def main() -> None:  # pragma: no cover - needs OANDA data
     rows = []
     for name in args.strategies:
         cfg0 = replace(base, strategy=replace(base.strategy, name=name))
-        tfs = {"trend": cfg0.strategy.trend_tf, "bias": cfg0.strategy.bias_tf, "entry": cfg0.strategy.entry_tf}
+        tfs = cfg0.strategy.timeframes()
         src = HistoricalOandaSource.from_oanda(client, cfg0.pair.symbol, tfs, start, end, cache_dir=args.cache, price="BA")
         fx = load_fx_converter(cfg0, client, start, end, cache_dir=args.cache)
         for mode in COST_MODES:

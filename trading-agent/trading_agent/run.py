@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from trading_agent import engine
@@ -85,14 +85,19 @@ def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool =
     )
 
 
+BACKTEST_WARMUP = timedelta(days=120)  # indicator history before --start (78 daily bars for a D regime screen)
+
+
 def cmd_backtest(args: argparse.Namespace) -> None:
     from trading_agent.marketdata.oanda_client import OandaClient  # lazy: keeps CLI parsing free of the network stack
 
     cfg = with_news_windows(load_config(args.config))
-    tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
+    tfs = cfg.strategy.timeframes()
     price = "BA" if cfg.risk.execution.price_mode == "bidask" else "M"
     client = OandaClient.from_env()
-    source = HistoricalOandaSource.from_oanda(client, cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache, price=price)
+    source = HistoricalOandaSource.from_oanda(
+        client, cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache, price=price, warmup=BACKTEST_WARMUP,
+    )
     strategy = _make_strategy(cfg, args.strategy, refresh=args.refresh, point_in_time=True)  # agent mode is cached => re-runs stay deterministic
     run_id = f"bt-{args.start}-{args.end}"
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
@@ -110,7 +115,7 @@ def cmd_live(args: argparse.Namespace) -> None:
 
     cfg = load_config(args.config)
     client = OandaClient.from_env()
-    tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
+    tfs = cfg.strategy.timeframes()
     source = LiveOandaSource(client, cfg.pair.symbol, tfs, poll_seconds=args.poll)
     strategy = _make_strategy(cfg, args.strategy, use_cache=False)  # live decisions are always fresh, never replayed
     run_id = f"live-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"  # wall clock is fine here (live, not a deterministic backtest)

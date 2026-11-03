@@ -14,10 +14,12 @@ from trading_agent.marketdata.base import SUPPORTED_GRANULARITIES
 _WEEKDAYS = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
 
 # Trading styles (docs/trading-system/Trading Styles.pdf) → triple-screen stack {trend, bias, entry}.
-# `entry` is also the decision clock. A style expands to these three timeframes; add one here to offer it.
+# `entry` is also the decision clock. A style expands to these timeframes; add one here to offer it.
+# Optional `regime` is a slower top screen (trending vs ranging + big-picture direction), checked only when
+# `setup.require_regime` is on.
 STYLES: dict[str, dict[str, str]] = {
     "scalping": {"trend": "M15", "bias": "M5", "entry": "M1"},
-    "intraday": {"trend": "H4", "bias": "H1", "entry": "M15"},
+    "intraday": {"regime": "D", "trend": "H4", "bias": "H1", "entry": "M15"},
     "swing": {"trend": "H4", "bias": "H1", "entry": "M15"},
     "position": {"trend": "D", "bias": "H4", "entry": "H1"},
 }
@@ -173,6 +175,8 @@ class StrategyConfig:
     style: str = "custom"  # trading style whose triple-screen stack the tfs came from ("custom" = explicit timeframes block)
     require_tk_momentum: bool = False  # Tenkan/Kijun must agree with direction
     require_chikou: bool = False  # Chikou (close) vs price 26 bars ago must confirm
+    regime_tf: str | None = None  # optional top screen above trend_tf (e.g. "D")
+    require_regime: bool = False  # regime_tf close beyond its cloud and Tenkan/Kijun aligned with the trade
     require_htf_confluence: bool = False  # top-down: on every timeframe above entry, Tenkan/Kijun and close/Kijun agree with direction
     breakout_ref: str = "cloud"  # ichimoku_breakout entry ref: "cloud" | "base"
     # v2.0 WFX:
@@ -201,6 +205,13 @@ class StrategyConfig:
     min_cloud_thickness_pips: float = 0.0  # quality: |Span A - Span B| on the direction tf (thin cloud = fragile trend)
     min_cloud_slope_pips: float = 0.0  # quality: Span A moved this far in the trade direction over `slope_lookback` bars (flat = ranging)
     slope_lookback: int = 5
+
+    def timeframes(self) -> dict[str, str]:
+        """role -> granularity for every screen to fetch (regime only when configured)."""
+        tfs = {"trend": self.trend_tf, "bias": self.bias_tf, "entry": self.entry_tf}
+        if self.regime_tf:
+            tfs["regime"] = self.regime_tf
+        return tfs
 
 
 @dataclass(frozen=True)
@@ -361,7 +372,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         tf = STYLES[style]
     else:
         tf = strat_raw["timeframes"]
-    for role, gran in (("trend", tf["trend"]), ("bias", tf["bias"]), ("entry", tf["entry"])):
+    for role, gran in tf.items():
         if gran not in SUPPORTED_GRANULARITIES:
             msg = f"{role} timeframe {gran!r} is not a fetchable granularity; supported: {sorted(SUPPORTED_GRANULARITIES)}"
             raise ValueError(msg)
@@ -373,6 +384,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         trend_tf=tf["trend"],
         bias_tf=tf["bias"],
         entry_tf=tf["entry"],
+        regime_tf=tf.get("regime"),
         style=style,
         ichimoku=IchimokuParams(
             tenkan=int(ich["tenkan"]),
@@ -390,6 +402,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         require_tk_momentum=bool(setup.get("require_tk_momentum", False)),
         require_chikou=bool(setup.get("require_chikou", False)),
         require_htf_confluence=bool(setup.get("require_htf_confluence", False)),
+        require_regime=bool(setup.get("require_regime", False)),
         breakout_ref=str(setup.get("breakout_ref", "cloud")),
         atr_length=int(setup.get("atr_length", 14)),
         atr_mult=float(setup.get("atr_mult", 2.75)),

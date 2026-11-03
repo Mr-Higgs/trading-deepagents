@@ -100,7 +100,7 @@ def main() -> None:
 
     cfg = load_config(args.config)
     client = OandaClient.from_env()
-    tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
+    tfs = cfg.strategy.timeframes()
     source = HistoricalOandaSource.from_oanda(client, cfg.pair.symbol, tfs, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache)
 
     off = dataclasses.replace(cfg.risk.management, scale_out=ScaleOutConfig(enabled=False))

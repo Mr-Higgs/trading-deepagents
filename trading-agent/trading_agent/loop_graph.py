@@ -64,7 +64,7 @@ def _apply_agent_overrides(cfg, overrides: dict | None):
 def run_loop(state: LoopState) -> LoopState:
     cfg = _apply_agent_overrides(load_config(_CONFIG_DIR), state.get("agents"))
     refresh = bool((state.get("agents") or {}).get("refresh"))
-    tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
+    tfs = cfg.strategy.timeframes()
     equity = float(state.get("equity", 10_000.0))
     mode = state.get("mode", "backtest")
 

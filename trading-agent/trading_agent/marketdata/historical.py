@@ -7,7 +7,7 @@ convenience constructor that fetches + caches the three timeframes.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -62,15 +62,18 @@ class HistoricalOandaSource:
         *,
         price: str = "M",
         lookback: int | None = LIVE_LOOKBACK,
+        warmup: timedelta | None = None,
     ) -> HistoricalOandaSource:
         """timeframes maps role->granularity, e.g. {"trend":"H4","bias":"H1","entry":"M15"}.
 
         `price="BA"` fetches bid/ask for the ENTRY timeframe only (fills happen there); higher
-        timeframes stay mid since indicators read mid prices.
+        timeframes stay mid since indicators read mid prices. `warmup` fetches that much
+        extra history before `start` for indicators while decisions still begin at `start`.
         """
         entry_tf = timeframes["entry"]
+        fetch_start = start - warmup if warmup else start
         frames = {
-            gran: client.candles_cached(instrument, gran, start, end, cache_dir, price=price if gran == entry_tf else "M")  # type: ignore[attr-defined]
+            gran: client.candles_cached(instrument, gran, fetch_start, end, cache_dir, price=price if gran == entry_tf else "M")  # type: ignore[attr-defined]
             for gran in set(timeframes.values())
         }
-        return cls(frames, entry_tf=entry_tf, lookback=lookback)
+        return cls(frames, entry_tf=entry_tf, lookback=lookback, stream_start=start if warmup else None)

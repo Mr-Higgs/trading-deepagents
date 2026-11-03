@@ -67,6 +67,31 @@ def htf_confluence(df: pd.DataFrame, ichi: pd.DataFrame, direction: str) -> bool
     return c > k if direction == "LONG" else c < k
 
 
+def regime_ok(snapshot: dict[str, pd.DataFrame], cfg, direction: str) -> str | None:
+    """Top-down regime screen (e.g. daily); returns the failing skip reason or None.
+
+    Trending in the trade direction = regime close beyond its cloud on the trade side (inside = ranging)
+    and Tenkan/Kijun aligned. Fails closed when the regime frame is missing or too short.
+    """
+    from trading_agent.indicators import ichimoku
+
+    p = cfg.ichimoku
+    df = snapshot.get(cfg.regime_tf) if cfg.regime_tf else None
+    if df is None or len(df) < p.senkou_b + p.displacement:
+        return "regime_insufficient_history"
+    ichi = ichimoku(df, tenkan=p.tenkan, kijun=p.kijun, senkou_b=p.senkou_b, displacement=p.displacement)
+    c, top, bot = _num(df["c"].iloc[-1]), _num(ichi["cloud_top"].iloc[-1]), _num(ichi["cloud_bottom"].iloc[-1])
+    if c is None or top is None or bot is None:
+        return "regime_insufficient_history"
+    if bot <= c <= top:
+        return "regime_ranging"
+    if (c > top) != (direction == "LONG"):
+        return "regime_against"
+    if not tk_momentum(ichi, direction):
+        return "regime_tk_against"
+    return None
+
+
 def htf_confluent(snapshot: dict[str, pd.DataFrame], cfg, direction: str) -> bool:
     """`htf_confluence` holds on every configured timeframe above the entry one (trend, then bias).
 

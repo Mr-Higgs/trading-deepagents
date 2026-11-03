@@ -25,6 +25,7 @@ setup:
   slope_lookback: 5
   m15_trigger: [engulfing, pin_bar, hammer, shooting_star, doji]   # (pullback strategy only) reversal candle(s); any match fires
   require_tk_momentum: true  # (pullback strategy only) Tenkan/Kijun must agree with the trade direction
+  require_regime: true       # daily (style regime tf) must trend the trade way: close beyond the cloud, Tenkan/Kijun aligned
   require_htf_confluence: true  # top-down: every tf above entry must have Tenkan/Kijun AND close/Kijun aligned with the trade
   require_chikou: true       # Chikou above/below price 26 bars back (Ichimoku.pdf Setup #2 condition 3)
   stop_rule: swing           # "kijun" | "cloud" | "atr" | "swing" (beyond last swing, Setup #1) | "candle" (beyond breakout candle, Setup #2)

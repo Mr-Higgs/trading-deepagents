@@ -106,6 +106,9 @@ class IchimokuPullback:
             return StrategyResult(None, "no_momentum")
         if cfg.require_chikou and not signals.chikou_ok(entry, cfg.ichimoku.displacement, direction):
             return StrategyResult(None, "no_chikou")
+        regime = signals.regime_ok(snapshot, cfg, direction) if cfg.require_regime else None
+        if regime:
+            return StrategyResult(None, regime)
         if cfg.require_htf_confluence and not signals.htf_confluent(snapshot, cfg, direction):
             return StrategyResult(None, "no_htf_confluence")
 
