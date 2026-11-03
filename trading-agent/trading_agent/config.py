@@ -17,7 +17,7 @@ _WEEKDAYS = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 
 # `entry` is also the decision clock. A style expands to these three timeframes; add one here to offer it.
 STYLES: dict[str, dict[str, str]] = {
     "scalping": {"trend": "M15", "bias": "M5", "entry": "M1"},
-    "intraday": {"trend": "H1", "bias": "M15", "entry": "M15"},
+    "intraday": {"trend": "H4", "bias": "H1", "entry": "M15"},
     "swing": {"trend": "H4", "bias": "H1", "entry": "M15"},
     "position": {"trend": "D", "bias": "H4", "entry": "H1"},
 }
