@@ -92,6 +92,7 @@ class ScaleOutConfig:
     legs: tuple[ScaleLeg, ...] = ()
     move_be_after_first: bool = True  # after leg 1, move stop to breakeven + buffer
     runner_trail: str = "off"  # "off" | "kijun" | "pips" — trail mode for the final remainder
+    min_leg_r: float = 0.0  # a leg only banks when its level is >= this many R beyond entry (0 = any in-profit level)
 
 
 @dataclass(frozen=True)
@@ -126,6 +127,7 @@ class RiskConfig:
     leverage: float | None = None  # margin check off when None; e.g. 30 => 3.33% margin requirement
     max_margin_usage: float = 1.0  # fraction of equity that open-position margin may consume
     news_auto: NewsAutoConfig = field(default_factory=lambda: NewsAutoConfig())
+    sizing_cost_pips: float = 0.0  # expected entry cost + stop slippage added to the stop distance for sizing and the R:R floor
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,7 @@ class StrategyConfig:
     style: str = "custom"  # trading style whose triple-screen stack the tfs came from ("custom" = explicit timeframes block)
     require_tk_momentum: bool = False  # Tenkan/Kijun must agree with direction
     require_chikou: bool = False  # Chikou (close) vs price 26 bars ago must confirm
+    require_htf_confluence: bool = False  # top-down: on every timeframe above entry, Tenkan/Kijun and close/Kijun agree with direction
     breakout_ref: str = "cloud"  # ichimoku_breakout entry ref: "cloud" | "base"
     # v2.0 WFX:
     atr_length: int = 14  # ATR lookback for the volatility stop (only used when stop_rule == "atr")
@@ -304,6 +307,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         legs=scale_legs,
         move_be_after_first=bool(scale_raw.get("move_be_after_first", True)),
         runner_trail=str(scale_raw.get("runner_trail", "off")),
+        min_leg_r=float(scale_raw.get("min_leg_r", 0.0)),
     )
     management = ManagementConfig(
         breakeven_enabled=bool(mgmt_raw.get("breakeven_enabled", False)),
@@ -331,6 +335,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         leverage=None if risk_raw.get("leverage") is None else float(risk_raw["leverage"]),
         max_margin_usage=float(risk_raw.get("max_margin_usage", 1.0)),
         news_auto=news_auto,
+        sizing_cost_pips=float(risk_raw.get("sizing_cost_pips", 0.0)),
     )
 
     # A `style` expands to a preset triple-screen stack and wins; otherwise fall back to an explicit
@@ -371,6 +376,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         name=str(strat_raw.get("name", "ichimoku_pullback")),
         require_tk_momentum=bool(setup.get("require_tk_momentum", False)),
         require_chikou=bool(setup.get("require_chikou", False)),
+        require_htf_confluence=bool(setup.get("require_htf_confluence", False)),
         breakout_ref=str(setup.get("breakout_ref", "cloud")),
         atr_length=int(setup.get("atr_length", 14)),
         atr_mult=float(setup.get("atr_mult", 2.75)),

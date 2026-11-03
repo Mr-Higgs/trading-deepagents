@@ -56,6 +56,37 @@ def tk_cross(ichi: pd.DataFrame, direction: str) -> bool:
     return _cross(prev_diff, now_diff) == ("up" if direction == "LONG" else "down")
 
 
+def htf_confluence(df: pd.DataFrame, ichi: pd.DataFrame, direction: str) -> bool:
+    """Higher-timeframe confirmation: Tenkan vs Kijun AND close vs Kijun both agree with `direction`.
+
+    LONG needs Tenkan > Kijun with price closed above the Kijun (SHORT mirrors). False on NaN lines.
+    """
+    c, k = _num(df["c"].iloc[-1]), _num(ichi["kijun"].iloc[-1])
+    if c is None or k is None or not tk_momentum(ichi, direction):
+        return False
+    return c > k if direction == "LONG" else c < k
+
+
+def htf_confluent(snapshot: dict[str, pd.DataFrame], cfg, direction: str) -> bool:
+    """`htf_confluence` holds on every configured timeframe above the entry one (trend, then bias).
+
+    `cfg` is a `StrategyConfig`. Timeframes equal to the entry timeframe are skipped (they are not higher).
+    """
+    from trading_agent.indicators import ichimoku  # noqa: PLC0415 - keeps this module import-light
+
+    p = cfg.ichimoku
+    for tf in dict.fromkeys((cfg.trend_tf, cfg.bias_tf)):
+        if tf == cfg.entry_tf:
+            continue
+        df = snapshot.get(tf)
+        if df is None or len(df) < p.kijun:
+            return False
+        ichi = ichimoku(df, tenkan=p.tenkan, kijun=p.kijun, senkou_b=p.senkou_b, displacement=p.displacement)
+        if not htf_confluence(df, ichi, direction):
+            return False
+    return True
+
+
 def exit_cross(df: pd.DataFrame, ichi: pd.DataFrame, direction: str) -> bool:
     """WFX early exit for an OPEN position: close-vs-Kijun OR Tenkan-vs-Kijun crosses against it.
 

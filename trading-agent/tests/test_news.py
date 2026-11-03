@@ -53,3 +53,16 @@ def test_config_wiring(tmp_path):
     risk = replace(make_risk(), news_auto=NewsAutoConfig(enabled=True, calendar="data/cal.csv"))
     out = with_news_windows(replace(cfg, risk=risk), root=tmp_path)
     assert len(out.risk.news_windows) == 2
+
+
+def test_missing_calendar_warns(tmp_path):
+    import pytest
+
+    from trading_agent.backtest_setup import with_news_windows
+    from trading_agent.config import load_config
+
+    cfg = load_config("config")
+    risk = replace(make_risk(), news_auto=NewsAutoConfig(enabled=True, calendar="data/missing.csv"))
+    with pytest.warns(UserWarning, match="no news blackouts"):
+        out = with_news_windows(replace(cfg, risk=risk), root=tmp_path)
+    assert out.risk.news_windows == ()

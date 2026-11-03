@@ -68,6 +68,8 @@ class IchimokuBreakout:
         # Optional Chikou confirmation (WFX has none; on only when config asks).
         if cfg.require_chikou and not signals.chikou_ok(entry, cfg.ichimoku.displacement, direction):
             return StrategyResult(None, "no_chikou")
+        if cfg.require_htf_confluence and not signals.htf_confluent(snapshot, cfg, direction):
+            return StrategyResult(None, "no_htf_confluence")
 
         # stop: ATR-based (WFX) or beyond the trigger candle; tp by rr
         entry_ref = cc

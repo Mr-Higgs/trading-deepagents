@@ -146,6 +146,25 @@ def test_margin_check_rejects_when_no_free_margin():
     assert dec.reason == "insufficient_margin"
 
 
+def test_sizing_cost_widens_stop_for_size_and_rr():
+    # 20-pip stop + 1.5-pip cost => size on 21.5 pips; 2.0R target nets (40-1.5)/21.5 < 2 => rejected.
+    eng = _engine(risk=make_risk(sizing_cost_pips=1.5, min_rr=1.5))
+    dec = eng.evaluate(make_signal("LONG", 0.6700, 0.6680, 0.6740), make_account(), make_day(), NOW)
+    assert dec.approved and dec.units == 46_511
+    strict = _engine(risk=make_risk(sizing_cost_pips=1.5, min_rr=2.0))
+    assert strict.evaluate(make_signal("LONG", 0.6700, 0.6680, 0.6740), make_account(), make_day(), NOW).reason == "rr_below_floor"
+
+
+def test_daily_loss_budget_counts_open_stop_risk():
+    from trading_agent.types import AccountState
+
+    acct = AccountState(equity=10_000.0, balance=10_000.0, open_positions=2, open_risk=150.0)
+    dec = _engine().evaluate(make_signal("LONG", 0.6700, 0.6680), acct, make_day(realized_pnl=-100.0), NOW)
+    assert dec.approved and dec.units == 25_000  # $300 cap - $100 realized - $150 open => $50 of new risk
+    full = AccountState(equity=10_000.0, balance=10_000.0, open_positions=2, open_risk=200.0)
+    assert _engine().evaluate(make_signal("LONG", 0.6700, 0.6680), full, make_day(realized_pnl=-100.0), NOW).reason == "daily_loss_budget"
+
+
 def test_tp_wrong_side_long_rejected():
     sig = make_signal("LONG", 0.6700, 0.6680, tp=0.6690)  # tp below entry
     dec = _engine().evaluate(sig, make_account(), make_day(), NOW)

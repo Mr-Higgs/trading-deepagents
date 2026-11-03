@@ -1,10 +1,12 @@
 """v1.2 setup: Ichimoku trend-pullback, fully deterministic.
 
 Rule chain (each failure returns a distinct skip reason):
-  1. H4 trend gate  - price above cloud => LONG-only bias; below => SHORT-only; inside => skip.
-  2. H1 pullback    - price pulled back into the Tenkan/Kijun zone (within a config band).
-  3. Confirmations  - (v1.2, config-gated) Tenkan/Kijun momentum + Chikou vs price 26 bars ago.
-  4. M15 trigger    - a candlestick pattern (engulfing/pin bar/...) back in the trend direction.
+  1. Trend gate     - trend-tf price above cloud => LONG-only bias; below => SHORT-only; inside => skip.
+  2. Pullback       - bias-tf price pulled back into the Tenkan/Kijun zone (within a config band).
+  3. Confirmations  - (config-gated) Tenkan/Kijun momentum, Chikou vs price 26 bars ago, and top-down
+                      confluence (Tenkan/Kijun and close/Kijun agree on every timeframe above entry).
+  4. Entry trigger  - a candlestick pattern (engulfing/pin bar/...) on the entry tf back in the trend direction.
+Feature keys keep their historical `h4_*` / `h1_*` / `m15_*` names; they mean trend / bias / entry timeframe.
 On a pass: stop beyond Kijun (or cloud) +/- buffer, take-profit at rr * stop_distance.
 """
 
@@ -76,6 +78,8 @@ class IchimokuPullback:
             return StrategyResult(None, "no_momentum")
         if cfg.require_chikou and not signals.chikou_ok(entry, cfg.ichimoku.displacement, direction):
             return StrategyResult(None, "no_chikou")
+        if cfg.require_htf_confluence and not signals.htf_confluent(snapshot, cfg, direction):
+            return StrategyResult(None, "no_htf_confluence")
 
         # 4. M15 candlestick trigger
         prev, curr = entry.iloc[-2], entry.iloc[-1]

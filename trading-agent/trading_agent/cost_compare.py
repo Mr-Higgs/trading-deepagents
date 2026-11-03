@@ -46,7 +46,7 @@ def run_one(cfg: AppConfig, source: HistoricalOandaSource, log_path: Path, equit
     log_path.unlink(missing_ok=True)
     log = EventLog(log_path, run_id=log_path.stem, strategy_version=cfg.strategy_version)
     try:
-        engine.run(source, build_strategy(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair, fx=fx), build_simulated_backend(cfg, fx), log, cfg, starting_equity=equity)
+        engine.run(source, build_strategy(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair, fx=fx), build_simulated_backend(cfg, fx), log, cfg, starting_equity=equity, liquidate_at_end=True)
     finally:
         log.close()
     return analyze(log_path, starting_equity=equity)

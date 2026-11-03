@@ -98,7 +98,7 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     log_path = Path(args.logdir) / f"events-{run_id}.jsonl"
     log = EventLog(log_path, run_id=run_id, strategy_version=cfg.strategy_version)
     fx = load_fx_converter(cfg, client, _utc_day(args.start), _utc_day(args.end), cache_dir=args.cache)
-    equity = engine.run(source, strategy, RiskEngine(cfg.risk, cfg.pair, fx=fx), build_simulated_backend(cfg, fx), log, cfg, starting_equity=args.equity)
+    equity = engine.run(source, strategy, RiskEngine(cfg.risk, cfg.pair, fx=fx), build_simulated_backend(cfg, fx), log, cfg, starting_equity=args.equity, liquidate_at_end=True)
     log.close()
     print(f"backtest done: final equity {equity:.2f} | log {log_path}")
     print(f"render journal: uv run python -m trading_agent.journal {log_path}")

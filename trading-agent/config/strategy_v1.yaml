@@ -16,6 +16,7 @@ setup:
   h1_pullback_band: 0.001   # (pullback strategy only) max distance from Tenkan/Kijun zone to count as a pullback
   m15_trigger: [engulfing, pin_bar, hammer, shooting_star, doji]   # (pullback strategy only) reversal candle(s); any match fires
   require_tk_momentum: true  # (pullback strategy only) Tenkan/Kijun must agree with the trade direction
+  require_htf_confluence: true  # top-down: every tf above entry must have Tenkan/Kijun AND close/Kijun aligned with the trade
   require_chikou: false      # WFX has no Chikou filter; the TK-cross is the trigger (breakout strategy)
   stop_rule: atr             # "kijun" | "cloud" | "atr" — WFX uses an ATR volatility stop
   stop_buffer_pips: 10.0      # (used only when stop_rule != "atr")

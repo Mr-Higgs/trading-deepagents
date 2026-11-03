@@ -14,7 +14,7 @@ FIXED_RISK_FIELDS = ("risk_pct", "max_daily_loss_pct", "max_trades_per_day", "ki
 
 _STRATEGY_FIELDS = {
     "rr", "stop_rule", "stop_buffer_pips", "atr_length", "atr_mult", "exit_on_kijun_cross", "require_tk_momentum",
-    "require_chikou", "min_trend_distance_pips", "h1_pullback_band", "breakout_ref", "breakout_lookback",
+    "require_chikou", "require_htf_confluence", "min_trend_distance_pips", "h1_pullback_band", "breakout_ref", "breakout_lookback",
     "retest_band_pips", "entry_trigger", "tp_mode", "confluence_min_score",
 }
 _MANAGEMENT_FIELDS = {"breakeven_enabled", "breakeven_trigger_r", "breakeven_trigger_pips", "breakeven_buffer_pips", "trail_mode", "trail_buffer_pips", "trail_distance_pips"}
@@ -65,6 +65,7 @@ _COMMON: Space = (
     Param("stop_buffer_pips", "float", 0.0, 10.0, 1.0),
     Param("require_tk_momentum", "bool"),
     Param("require_chikou", "bool"),
+    Param("require_htf_confluence", "bool"),
     Param("min_trend_distance_pips", "float", 0.0, 20.0, 2.0),
 )
 DEFAULT_SPACES: dict[str, Space] = {

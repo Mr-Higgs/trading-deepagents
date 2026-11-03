@@ -76,3 +76,30 @@ def test_nan_ichimoku_yields_unknown_state_no_crash():
     out = signals.ichimoku_signals(df, ichi, displacement=1)
     assert out["state"]["price_vs_cloud"] == "unknown"
     assert out["signals"] == []
+
+
+def _htf_frames(close: float, tenkan: float, kijun: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return pd.DataFrame({"c": [close]}), pd.DataFrame({"tenkan": [tenkan], "kijun": [kijun]})
+
+
+def test_htf_confluence_needs_tk_and_price_vs_kijun():
+    assert signals.htf_confluence(*_htf_frames(1.10, 1.08, 1.05), "LONG")
+    assert not signals.htf_confluence(*_htf_frames(1.04, 1.08, 1.05), "LONG")  # price below Kijun
+    assert not signals.htf_confluence(*_htf_frames(1.10, 1.04, 1.05), "LONG")  # Tenkan below Kijun
+    assert signals.htf_confluence(*_htf_frames(1.00, 1.02, 1.05), "SHORT")
+    assert not signals.htf_confluence(*_htf_frames(1.10, float("nan"), 1.05), "LONG")
+
+
+def test_htf_confluent_checks_only_timeframes_above_entry(monkeypatch):
+    from dataclasses import replace
+
+    from conftest import make_strategy
+
+    cfg = replace(make_strategy(), trend_tf="H1", bias_tf="M15", entry_tf="M15")
+    up = pd.DataFrame({"c": [1.0 + i * 0.001 for i in range(60)]})
+    down = pd.DataFrame({"c": [1.1 - i * 0.001 for i in range(60)]})
+    for df in (up, down):
+        df["h"], df["l"], df["o"] = df["c"] + 0.0005, df["c"] - 0.0005, df["c"]
+    assert signals.htf_confluent({"H1": up, "M15": down}, cfg, "LONG")  # M15 is the entry tf: ignored
+    assert not signals.htf_confluent({"H1": down, "M15": up}, cfg, "LONG")
+    assert not signals.htf_confluent({"M15": up}, cfg, "LONG")  # missing higher tf fails closed
