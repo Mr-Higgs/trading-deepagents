@@ -23,6 +23,7 @@ setup:
   min_cloud_thickness_pips: 5.0    # quality: |Span A - Span B| on the direction tf (thin = fragile trend); 0 = off
   min_cloud_slope_pips: 1.0        # quality: Span A slope over slope_lookback bars (flat = ranging); 0 = off
   slope_lookback: 5
+  quality_min_pass: 2              # 0 = all enabled quality checks must pass; N = at least N of the 4 (confluence score)
   m15_trigger: [engulfing, pin_bar, hammer, shooting_star, doji]   # (pullback strategy only) reversal candle(s); any match fires
   require_tk_momentum: true  # (pullback strategy only) Tenkan/Kijun must agree with the trade direction
   require_regime: true       # daily (style regime tf) must trend the trade way: close beyond the cloud, Tenkan/Kijun aligned

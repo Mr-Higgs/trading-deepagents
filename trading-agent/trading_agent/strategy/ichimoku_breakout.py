@@ -81,7 +81,7 @@ class IchimokuBreakout:
         else:
             msg = f"unknown breakout_trigger {trig!r}"
             raise ValueError(msg)
-        weak = signals.quality_ok(ich, cfg, direction, self.pair.pip_size)
+        weak = signals.quality_gate(signals.quality_checks(ich, cfg, direction, self.pair.pip_size), cfg)
         if weak:
             return StrategyResult(None, weak)
         if cfg.breakout_require_pattern:

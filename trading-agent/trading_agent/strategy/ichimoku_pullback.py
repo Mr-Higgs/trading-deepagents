@@ -97,7 +97,8 @@ class IchimokuPullback:
         if not self._in_zone(bias, bi, direction):
             return StrategyResult(None, "no_pullback")
         pip = self.pair.pip_size
-        weak = signals.quality_ok(trend_ichi, cfg, direction, pip, tk=False) or signals.quality_ok(bias_ichi, cfg, direction, pip, cloud=False)
+        checks = signals.quality_checks(trend_ichi, cfg, direction, pip, tk=False) | signals.quality_checks(bias_ichi, cfg, direction, pip, cloud=False)
+        weak = signals.quality_gate(checks, cfg)
         if weak:
             return StrategyResult(None, weak)
 

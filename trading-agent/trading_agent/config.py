@@ -205,6 +205,7 @@ class StrategyConfig:
     min_cloud_thickness_pips: float = 0.0  # quality: |Span A - Span B| on the direction tf (thin cloud = fragile trend)
     min_cloud_slope_pips: float = 0.0  # quality: Span A moved this far in the trade direction over `slope_lookback` bars (flat = ranging)
     slope_lookback: int = 5
+    quality_min_pass: int = 0  # 0 = every enabled quality check must pass; N = at least N of them (confluence score)
 
     def timeframes(self) -> dict[str, str]:
         """role -> granularity for every screen to fetch (regime only when configured)."""
@@ -426,6 +427,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         min_cloud_thickness_pips=float(setup.get("min_cloud_thickness_pips", 0.0)),
         min_cloud_slope_pips=float(setup.get("min_cloud_slope_pips", 0.0)),
         slope_lookback=int(setup.get("slope_lookback", 5)),
+        quality_min_pass=int(setup.get("quality_min_pass", 0)),
     )
 
     if strategy.instrument not in pairs:

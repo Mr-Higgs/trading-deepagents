@@ -16,7 +16,7 @@ _STRATEGY_FIELDS = {
     "rr", "stop_rule", "stop_buffer_pips", "atr_length", "atr_mult", "exit_on_kijun_cross", "require_tk_momentum",
     "require_chikou", "require_htf_confluence", "require_regime", "min_trend_distance_pips", "h1_pullback_band", "breakout_ref", "breakout_lookback",
     "retest_band_pips", "entry_trigger", "tp_mode", "confluence_min_score", "fib_lookback", "swing_lookback", "breakout_trigger",
-    "breakout_require_pattern", "min_tk_separation_pips", "min_kijun_slope_pips", "min_cloud_thickness_pips", "min_cloud_slope_pips",
+    "breakout_require_pattern", "min_tk_separation_pips", "min_kijun_slope_pips", "min_cloud_thickness_pips", "min_cloud_slope_pips", "quality_min_pass",
 }
 _MANAGEMENT_FIELDS = {"breakeven_enabled", "breakeven_trigger_r", "breakeven_trigger_pips", "breakeven_buffer_pips", "trail_mode", "trail_buffer_pips", "trail_distance_pips"}
 _SPECIAL = {"partial_exit_pct"}  # fraction of the first scale-out leg; 0 disables scale-out
@@ -74,6 +74,7 @@ _COMMON: Space = (
     Param("min_kijun_slope_pips", "float", 0.0, 10.0, 1.0),
     Param("min_cloud_thickness_pips", "float", 0.0, 20.0, 2.0),
     Param("min_cloud_slope_pips", "float", 0.0, 10.0, 1.0),
+    Param("quality_min_pass", "int", 0, 4, 1),
 )
 DEFAULT_SPACES: dict[str, Space] = {
     "ichimoku_breakout": (

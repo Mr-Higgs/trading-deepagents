@@ -157,3 +157,13 @@ def test_quality_filters_reasons():
     assert signals.quality_ok(ichi, replace(cfg, min_cloud_thickness_pips=500), "LONG", pip) == "thin_cloud"
     assert signals.quality_ok(ichi, replace(cfg, min_cloud_slope_pips=20), "LONG", pip) == "flat_cloud"
     assert signals.quality_ok(ichi, replace(cfg, min_cloud_slope_pips=20), "LONG", pip, cloud=False) is None
+
+
+def test_quality_gate_all_vs_score():
+    from types import SimpleNamespace
+
+    checks = {"narrow_tk": True, "flat_kijun": False, "thin_cloud": True, "flat_cloud": False}
+    assert signals.quality_gate(checks, SimpleNamespace(quality_min_pass=0)) == "flat_kijun"
+    assert signals.quality_gate(checks, SimpleNamespace(quality_min_pass=2)) is None
+    assert signals.quality_gate(checks, SimpleNamespace(quality_min_pass=3)) == "weak_quality"
+    assert signals.quality_gate({}, SimpleNamespace(quality_min_pass=3)) is None  # nothing enabled

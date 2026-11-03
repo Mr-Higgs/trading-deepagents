@@ -173,27 +173,40 @@ def close_crossed(df: pd.DataFrame, level: pd.Series, direction: str) -> bool:
     return _cross(prev_diff, now_diff) == ("up" if direction == "LONG" else "down")
 
 
-def quality_ok(ichi: pd.DataFrame, cfg, direction: str, pip: float, *, tk: bool = True, cloud: bool = True) -> str | None:
-    """Ichimoku.pdf signal-strength filters; returns the failing skip reason or None.
+def quality_checks(ichi: pd.DataFrame, cfg, direction: str, pip: float, *, tk: bool = True, cloud: bool = True) -> dict[str, bool]:
+    """Ichimoku.pdf signal-strength checks with a threshold > 0, keyed by their skip reason (True = passed).
 
     `tk`: Tenkan/Kijun separation and Kijun slope (a steep, wide cross is strong). `cloud`: cloud thickness and
-    Span A slope (a thin or flat cloud is a fragile / ranging market). Thresholds of 0 disable a check.
+    Span A slope (a thin or flat cloud is a fragile / ranging market).
     """
     last = ichi.iloc[-1]
     n = cfg.slope_lookback
+    out: dict[str, bool] = {}
     if tk:
         t, k = _num(last["tenkan"]), _num(last["kijun"])
-        if cfg.min_tk_separation_pips > 0 and (t is None or k is None or abs(t - k) < cfg.min_tk_separation_pips * pip):
-            return "narrow_tk"
-        if cfg.min_kijun_slope_pips > 0 and directional_slope(ichi["kijun"], n, direction) < cfg.min_kijun_slope_pips * pip:
-            return "flat_kijun"
+        if cfg.min_tk_separation_pips > 0:
+            out["narrow_tk"] = t is not None and k is not None and abs(t - k) >= cfg.min_tk_separation_pips * pip
+        if cfg.min_kijun_slope_pips > 0:
+            out["flat_kijun"] = directional_slope(ichi["kijun"], n, direction) >= cfg.min_kijun_slope_pips * pip
     if cloud:
         a, b = _num(last["senkou_a"]), _num(last["senkou_b"])
-        if cfg.min_cloud_thickness_pips > 0 and (a is None or b is None or abs(a - b) < cfg.min_cloud_thickness_pips * pip):
-            return "thin_cloud"
-        if cfg.min_cloud_slope_pips > 0 and directional_slope(ichi["senkou_a"], n, direction) < cfg.min_cloud_slope_pips * pip:
-            return "flat_cloud"
-    return None
+        if cfg.min_cloud_thickness_pips > 0:
+            out["thin_cloud"] = a is not None and b is not None and abs(a - b) >= cfg.min_cloud_thickness_pips * pip
+        if cfg.min_cloud_slope_pips > 0:
+            out["flat_cloud"] = directional_slope(ichi["senkou_a"], n, direction) >= cfg.min_cloud_slope_pips * pip
+    return out
+
+
+def quality_ok(ichi: pd.DataFrame, cfg, direction: str, pip: float, *, tk: bool = True, cloud: bool = True) -> str | None:
+    """Single-frame quality gate: first failing check's reason (all must pass), or None."""
+    return next((r for r, ok in quality_checks(ichi, cfg, direction, pip, tk=tk, cloud=cloud).items() if not ok), None)
+
+
+def quality_gate(checks: dict[str, bool], cfg) -> str | None:
+    """`quality_min_pass` 0 = every enabled check must pass; N > 0 = at least N of them (a confluence score)."""
+    if cfg.quality_min_pass <= 0:
+        return next((r for r, ok in checks.items() if not ok), None)
+    return "weak_quality" if sum(checks.values()) < min(cfg.quality_min_pass, len(checks)) else None
 
 
 def exit_cross(df: pd.DataFrame, ichi: pd.DataFrame, direction: str) -> bool:
