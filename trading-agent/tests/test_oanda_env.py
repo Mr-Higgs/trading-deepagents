@@ -7,7 +7,7 @@ import pytest
 from trading_agent.oanda_env import LiveAccountRefused, practice_account_id, practice_environment
 
 _LIVE = "001-001-21810409-001"
-_DEMO = "101-001-21810409-002"
+_DEMO = "101-001-12345678-001"
 
 
 def test_prefers_demo_account_over_live(monkeypatch):
