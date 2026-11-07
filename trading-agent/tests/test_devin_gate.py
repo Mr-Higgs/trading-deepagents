@@ -78,3 +78,9 @@ def test_devin_never_sees_broker_or_model_secrets(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     env = devin_gate._scrubbed_env()
     assert not any(k.startswith("OANDA_") for k in env) and "ANTHROPIC_API_KEY" not in env
+
+
+def test_as_graph_serves_the_gate_for_langgraph_dev():
+    gate = DevinCliGate(_cfg(), run=lambda model, prompt: '{"decision": "veto", "confidence": 0.6, "rationale": "NFP"}')
+    out = gate.as_graph().invoke({"messages": [{"role": "user", "content": "LONG AUD_USD @ 0.67"}]})
+    assert out["structured_response"]["decision"] == "veto" and '"veto"' in out["messages"][-1].content

@@ -10,8 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from trading_agent.config import load_config
+from trading_agent.strategy.agents.devin_gate import DevinCliGate
 from trading_agent.strategy.agents.orchestrator import build_orchestrator
 
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"  # trading-agent/config, cwd-independent
-agent = build_orchestrator(load_config(_CONFIG_DIR))  # agents.yaml -> opus gate + haiku analysts
-
+agent = build_orchestrator(load_config(_CONFIG_DIR))  # agents.yaml -> opus gate + haiku analysts, or the Devin CLI gate
+if isinstance(agent, DevinCliGate):
+    agent = agent.as_graph()  # langgraph dev only serves graphs
