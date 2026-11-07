@@ -82,8 +82,13 @@ SENTIMENT_PROMPT = (
 
 
 def build_orchestrator(cfg: AppConfig):
-    """Compile the orchestrator graph from config. Requires ANTHROPIC_API_KEY at call time."""
+    """Compile the orchestrator graph from config. Requires ANTHROPIC_API_KEY at call time,
+    unless orchestrator_model is `devin-cli:<model>` (then the Devin CLI's own login is used)."""
     a = cfg.agents
+    if a.orchestrator_model.startswith("devin-cli:"):
+        from trading_agent.strategy.agents.devin_gate import DevinCliGate
+
+        return DevinCliGate(cfg)
     analyst_model = init_chat_model(a.analyst_model)
 
     # sentiment analyst: tell it which CFTC contract to pull so a non-AUD instrument uses the right code
