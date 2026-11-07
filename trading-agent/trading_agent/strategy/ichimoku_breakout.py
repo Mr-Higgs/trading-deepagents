@@ -1,4 +1,10 @@
-"""Setup #2 - Ichimoku Tenkan/Kijun-cross momentum entry, deterministic (WFX Refined Ichimoku).
+"""Setup #2 - Ichimoku breakout entry, deterministic.
+
+`breakout_trigger` picks the entry event: "tk_cross" (WFX Refined Ichimoku, below), or Ichimoku.pdf
+"Breaking into the Cloud": "cloud" = the candle closes through the far cloud edge, "kijun" = the quicker
+close through Kijun while price is already beyond the cloud; both also need Tenkan/Kijun to agree.
+Optional candlestick confirmation (`breakout_require_pattern`) and quality filters (TK separation, Kijun
+and cloud slope, cloud thickness). `stop_rule` "swing" puts the stop beyond the last `swing_lookback` bars.
 
 Ported from docs/trading-system/tradingview-script.md. On the entry timeframe, LONG when:
   price above the cloud  AND  Tenkan crosses ABOVE Kijun on THIS bar (the WFX trigger).
@@ -19,7 +25,7 @@ import pandas as pd
 
 from trading_agent.config import PairConfig, StrategyConfig
 from trading_agent.indicators import atr, ichimoku
-from trading_agent.strategy import signals
+from trading_agent.strategy import patterns, signals
 from trading_agent.strategy.base import StrategyResult
 from trading_agent.types import Signal
 
@@ -62,12 +68,35 @@ class IchimokuBreakout:
         else:
             return StrategyResult(None, "in_cloud")
 
-        # WFX trigger: Tenkan crosses Kijun on THIS bar in the trade direction.
-        if not signals.tk_cross(ich, direction):
-            return StrategyResult(None, "no_tk_cross")
+        trig = cfg.breakout_trigger
+        if trig == "tk_cross":  # WFX: Tenkan crosses Kijun on THIS bar in the trade direction
+            if not signals.tk_cross(ich, direction):
+                return StrategyResult(None, "no_tk_cross")
+        elif trig in ("cloud", "kijun"):
+            level = ich["cloud_top" if direction == "LONG" else "cloud_bottom"] if trig == "cloud" else ich["kijun"]
+            if not signals.close_crossed(entry, level, direction):
+                return StrategyResult(None, f"no_{trig}_cross")
+            if not signals.tk_momentum(ich, direction):
+                return StrategyResult(None, "no_momentum")
+        else:
+            msg = f"unknown breakout_trigger {trig!r}"
+            raise ValueError(msg)
+        weak = signals.quality_gate(signals.quality_checks(ich, cfg, direction, self.pair.pip_size), cfg)
+        if weak:
+            return StrategyResult(None, weak)
+        if cfg.breakout_require_pattern:
+            rows = [entry.iloc[i] for i in (-3, -2, -1)] if len(entry) >= 3 else [None, entry.iloc[-2], entry.iloc[-1]]
+            ohlc = [None if r is None else (float(r["o"]), float(r["h"]), float(r["l"]), float(r["c"])) for r in rows]
+            if not patterns.matches(cfg.m15_trigger, direction, ohlc[1], ohlc[2], ohlc[0]):
+                return StrategyResult(None, "no_trigger")
         # Optional Chikou confirmation (WFX has none; on only when config asks).
         if cfg.require_chikou and not signals.chikou_ok(entry, cfg.ichimoku.displacement, direction):
             return StrategyResult(None, "no_chikou")
+        regime = signals.regime_ok(snapshot, cfg, direction) if cfg.require_regime else None
+        if regime:
+            return StrategyResult(None, regime)
+        if cfg.require_htf_confluence and not signals.htf_confluent(snapshot, cfg, direction):
+            return StrategyResult(None, "no_htf_confluence")
 
         # stop: ATR-based (WFX) or beyond the trigger candle; tp by rr
         entry_ref = cc
@@ -77,6 +106,9 @@ class IchimokuBreakout:
                 return StrategyResult(None, "invalid_stop")
             stop_distance = atr_val * cfg.atr_mult
             stop = entry_ref - stop_distance if direction == "LONG" else entry_ref + stop_distance
+        elif cfg.stop_rule == "swing":
+            stop = signals.swing_stop(entry, cfg.swing_lookback, direction, cfg.stop_buffer_pips * self.pair.pip_size)
+            stop_distance = entry_ref - stop if direction == "LONG" else stop - entry_ref
         else:
             buffer = cfg.stop_buffer_pips * self.pair.pip_size
             stop = float(curr["l"]) - buffer if direction == "LONG" else float(curr["h"]) + buffer
@@ -84,7 +116,7 @@ class IchimokuBreakout:
         if stop_distance <= 0:
             return StrategyResult(None, "invalid_stop")
         tp = entry_ref + cfg.rr * stop_distance if direction == "LONG" else entry_ref - cfg.rr * stop_distance
-        reason = f"tk_cross_{direction.lower()}"
+        reason = f"{trig}_{direction.lower()}"
 
         sig = Signal(
             ts=now,

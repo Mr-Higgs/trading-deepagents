@@ -14,10 +14,12 @@ from trading_agent.marketdata.base import SUPPORTED_GRANULARITIES
 _WEEKDAYS = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
 
 # Trading styles (docs/trading-system/Trading Styles.pdf) → triple-screen stack {trend, bias, entry}.
-# `entry` is also the decision clock. A style expands to these three timeframes; add one here to offer it.
+# `entry` is also the decision clock. A style expands to these timeframes; add one here to offer it.
+# Optional `regime` is a slower top screen (trending vs ranging + big-picture direction), checked only when
+# `setup.require_regime` is on.
 STYLES: dict[str, dict[str, str]] = {
     "scalping": {"trend": "M15", "bias": "M5", "entry": "M1"},
-    "intraday": {"trend": "H1", "bias": "M15", "entry": "M15"},
+    "intraday": {"regime": "D", "trend": "H4", "bias": "H1", "entry": "M15"},
     "swing": {"trend": "H4", "bias": "H1", "entry": "M15"},
     "position": {"trend": "D", "bias": "H4", "entry": "H1"},
 }
@@ -92,6 +94,7 @@ class ScaleOutConfig:
     legs: tuple[ScaleLeg, ...] = ()
     move_be_after_first: bool = True  # after leg 1, move stop to breakeven + buffer
     runner_trail: str = "off"  # "off" | "kijun" | "pips" — trail mode for the final remainder
+    min_leg_r: float = 0.0  # a leg only banks when its level is >= this many R beyond entry (0 = any in-profit level)
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,7 @@ class RiskConfig:
     leverage: float | None = None  # margin check off when None; e.g. 30 => 3.33% margin requirement
     max_margin_usage: float = 1.0  # fraction of equity that open-position margin may consume
     news_auto: NewsAutoConfig = field(default_factory=lambda: NewsAutoConfig())
+    sizing_cost_pips: float = 0.0  # expected entry cost + stop slippage added to the stop distance for sizing and the R:R floor
 
 
 @dataclass(frozen=True)
@@ -137,6 +141,7 @@ class NewsAutoConfig:
     minutes_before: int = 30
     minutes_after: int = 30
     impacts: tuple[str, ...] = ("High",)
+    impact_minutes: dict[str, tuple[int, int]] = field(default_factory=dict)  # per-impact (before, after) override
 
 
 @dataclass(frozen=True)
@@ -162,7 +167,7 @@ class StrategyConfig:
     ichimoku: IchimokuParams
     h1_pullback_band: float
     m15_trigger: tuple[str, ...]  # candlestick pattern(s) that trigger entry; any match fires
-    stop_rule: str  # "kijun" | "cloud" | "atr"
+    stop_rule: str  # "kijun" | "cloud" | "atr" | "swing" (beyond the last swing) | "candle" (beyond the trigger candle)
     stop_buffer_pips: float
     rr: float
     min_trend_distance_pips: float = 0.0  # v1.1: price must clear the cloud by this much (skip thin-cloud chop); 0 = no filter
@@ -171,6 +176,9 @@ class StrategyConfig:
     style: str = "custom"  # trading style whose triple-screen stack the tfs came from ("custom" = explicit timeframes block)
     require_tk_momentum: bool = False  # Tenkan/Kijun must agree with direction
     require_chikou: bool = False  # Chikou (close) vs price 26 bars ago must confirm
+    regime_tf: str | None = None  # optional top screen above trend_tf (e.g. "D")
+    require_regime: bool = False  # regime_tf close beyond its cloud and Tenkan/Kijun aligned with the trade
+    require_htf_confluence: bool = False  # top-down: on every timeframe above entry, Tenkan/Kijun and close/Kijun agree with direction
     breakout_ref: str = "cloud"  # ichimoku_breakout entry ref: "cloud" | "base"
     # v2.0 WFX:
     atr_length: int = 14  # ATR lookback for the volatility stop (only used when stop_rule == "atr")
@@ -185,6 +193,27 @@ class StrategyConfig:
     # ichimoku_cloud_breakout (only used when name == "ichimoku_cloud_breakout"; no-op defaults otherwise):
     breakout_lookback: int = 10  # bars to scan back for a cloud break before the retest
     retest_band_pips: float = 8.0  # how close price must pull back to the broken cloud edge to count as a retest
+    # v3.0 Ichimoku.pdf setups (no-op defaults keep v2 behavior):
+    pullback_zones: tuple[str, ...] = ("tk_band",)  # Setup #1 entry zones, any match: tk_band | fib | tenkan | kijun | span_a
+    fib_lookback: int = 40  # bias-tf bars scanned for the swing that the Fibonacci golden zone is drawn on
+    fib_low: float = 0.5  # golden zone = fib_low .. fib_high retracement of that swing
+    fib_high: float = 0.618
+    swing_lookback: int = 10  # entry-tf bars scanned for the swing low/high behind a "swing" stop
+    breakout_trigger: str = "tk_cross"  # Setup #2 trigger: "tk_cross" | "cloud" (close crosses the cloud) | "kijun" (close crosses Kijun above/below the cloud)
+    breakout_require_pattern: bool = False  # Setup #2: the breakout candle must also match `m15_trigger`
+    min_tk_separation_pips: float = 0.0  # quality: |Tenkan - Kijun| on the signal tf
+    min_kijun_slope_pips: float = 0.0  # quality: Kijun moved this far in the trade direction over `slope_lookback` bars
+    min_cloud_thickness_pips: float = 0.0  # quality: |Span A - Span B| on the direction tf (thin cloud = fragile trend)
+    min_cloud_slope_pips: float = 0.0  # quality: Span A moved this far in the trade direction over `slope_lookback` bars (flat = ranging)
+    slope_lookback: int = 5
+    quality_min_pass: int = 0  # 0 = every enabled quality check must pass; N = at least N of them (confluence score)
+
+    def timeframes(self) -> dict[str, str]:
+        """role -> granularity for every screen to fetch (regime only when configured)."""
+        tfs = {"trend": self.trend_tf, "bias": self.bias_tf, "entry": self.entry_tf}
+        if self.regime_tf:
+            tfs["regime"] = self.regime_tf
+        return tfs
 
 
 @dataclass(frozen=True)
@@ -284,6 +313,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         minutes_before=int(na.get("minutes_before", 30)),
         minutes_after=int(na.get("minutes_after", 30)),
         impacts=tuple(na.get("impacts", ["High"])),
+        impact_minutes={str(k): (int(v[0]), int(v[1])) for k, v in (na.get("impact_minutes") or {}).items()},
     )
     news = tuple(
         NewsWindow(
@@ -304,6 +334,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         legs=scale_legs,
         move_be_after_first=bool(scale_raw.get("move_be_after_first", True)),
         runner_trail=str(scale_raw.get("runner_trail", "off")),
+        min_leg_r=float(scale_raw.get("min_leg_r", 0.0)),
     )
     management = ManagementConfig(
         breakeven_enabled=bool(mgmt_raw.get("breakeven_enabled", False)),
@@ -331,6 +362,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         leverage=None if risk_raw.get("leverage") is None else float(risk_raw["leverage"]),
         max_margin_usage=float(risk_raw.get("max_margin_usage", 1.0)),
         news_auto=news_auto,
+        sizing_cost_pips=float(risk_raw.get("sizing_cost_pips", 0.0)),
     )
 
     # A `style` expands to a preset triple-screen stack and wins; otherwise fall back to an explicit
@@ -343,7 +375,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         tf = STYLES[style]
     else:
         tf = strat_raw["timeframes"]
-    for role, gran in (("trend", tf["trend"]), ("bias", tf["bias"]), ("entry", tf["entry"])):
+    for role, gran in tf.items():
         if gran not in SUPPORTED_GRANULARITIES:
             msg = f"{role} timeframe {gran!r} is not a fetchable granularity; supported: {sorted(SUPPORTED_GRANULARITIES)}"
             raise ValueError(msg)
@@ -355,6 +387,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         trend_tf=tf["trend"],
         bias_tf=tf["bias"],
         entry_tf=tf["entry"],
+        regime_tf=tf.get("regime"),
         style=style,
         ichimoku=IchimokuParams(
             tenkan=int(ich["tenkan"]),
@@ -371,6 +404,8 @@ def load_config(config_dir: str | Path) -> AppConfig:
         name=str(strat_raw.get("name", "ichimoku_pullback")),
         require_tk_momentum=bool(setup.get("require_tk_momentum", False)),
         require_chikou=bool(setup.get("require_chikou", False)),
+        require_htf_confluence=bool(setup.get("require_htf_confluence", False)),
+        require_regime=bool(setup.get("require_regime", False)),
         breakout_ref=str(setup.get("breakout_ref", "cloud")),
         atr_length=int(setup.get("atr_length", 14)),
         atr_mult=float(setup.get("atr_mult", 2.75)),
@@ -382,6 +417,19 @@ def load_config(config_dir: str | Path) -> AppConfig:
         require_thinning_cloud=bool(setup.get("require_thinning_cloud", False)),
         breakout_lookback=int(setup.get("breakout_lookback", 10)),
         retest_band_pips=float(setup.get("retest_band_pips", 8.0)),
+        pullback_zones=tuple(setup["pullback_zones"]) if isinstance(setup.get("pullback_zones"), list) else (str(setup.get("pullback_zones", "tk_band")),),
+        fib_lookback=int(setup.get("fib_lookback", 40)),
+        fib_low=float(setup.get("fib_low", 0.5)),
+        fib_high=float(setup.get("fib_high", 0.618)),
+        swing_lookback=int(setup.get("swing_lookback", 10)),
+        breakout_trigger=str(setup.get("breakout_trigger", "tk_cross")),
+        breakout_require_pattern=bool(setup.get("breakout_require_pattern", False)),
+        min_tk_separation_pips=float(setup.get("min_tk_separation_pips", 0.0)),
+        min_kijun_slope_pips=float(setup.get("min_kijun_slope_pips", 0.0)),
+        min_cloud_thickness_pips=float(setup.get("min_cloud_thickness_pips", 0.0)),
+        min_cloud_slope_pips=float(setup.get("min_cloud_slope_pips", 0.0)),
+        slope_lookback=int(setup.get("slope_lookback", 5)),
+        quality_min_pass=int(setup.get("quality_min_pass", 0)),
     )
 
     if strategy.instrument not in pairs:

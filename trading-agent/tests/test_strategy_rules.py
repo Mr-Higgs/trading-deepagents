@@ -19,7 +19,7 @@ from trading_agent.strategy.ichimoku_pullback import IchimokuPullback
 UTC = timezone.utc
 START = datetime(2026, 1, 1, tzinfo=UTC)
 NOW = datetime(2026, 1, 30, tzinfo=UTC)
-STEP = {"H4": timedelta(hours=4), "H1": timedelta(hours=1), "M15": timedelta(minutes=15)}
+STEP = {"D": timedelta(days=1), "H4": timedelta(hours=4), "H1": timedelta(hours=1), "M15": timedelta(minutes=15)}
 
 
 def _ramp(tf: str, n: int, base: float, slope: float) -> pd.DataFrame:
@@ -201,6 +201,32 @@ def test_breakout_no_tk_cross_skips():
     assert res.reason == "no_tk_cross"
 
 
+def test_breakout_cloud_trigger_needs_a_cross_this_bar():
+    from trading_agent.strategy.ichimoku_breakout import IchimokuBreakout
+
+    cfg = make_strategy(name="ichimoku_breakout", breakout_trigger="cloud")
+    trending = _ramp("M15", 120, 0.6700, 0.0002)  # already above the cloud: no cross on the last bar
+    assert IchimokuBreakout(cfg, make_pair()).evaluate({"M15": trending}, NOW).reason == "no_cloud_cross"
+    jump = _ramp("M15", 120, 0.6700, 0.0).copy()  # flat, then the last candle closes through the cloud
+    last = jump.index[-1]
+    jump.loc[last, ["h", "c"]] = 0.6720
+    res = IchimokuBreakout(cfg, make_pair()).evaluate({"M15": jump}, NOW)
+    assert res.signal is None and res.reason == "no_momentum"  # Tenkan == Kijun: Setup #2 condition 1 fails
+
+
+def test_pullback_swing_stop_and_zone_config():
+    snap = _snapshot("LONG")
+    eng = IchimokuPullback(make_strategy(stop_rule="swing", swing_lookback=2, stop_buffer_pips=1), make_pair())
+    res = eng.evaluate(snap, NOW)
+    assert res.signal is not None
+    assert abs(res.signal.stop - (float(snap["M15"]["l"].min()) - 0.0001)) < 1e-12
+    bad = IchimokuPullback(make_strategy(pullback_zones=("bogus",)), make_pair())
+    import pytest
+
+    with pytest.raises(ValueError, match="unknown pullback zone"):
+        bad.evaluate(snap, NOW)
+
+
 # ---- ichimoku_confluence (multi-TF gate; entries proven by the backtest, not brittle synthetic clouds) ----
 
 
@@ -234,3 +260,28 @@ def test_confluence_gate_passes_then_delegates_to_inner():
     res = _confluence().evaluate(up, NOW)
     assert res.signal is None
     assert res.reason == "no_trigger"  # not low_confluence/insufficient/h4_conflict => inner was called
+
+
+# ---- daily regime screen (top-down D / H4 / H1 / M15) ----
+
+
+def test_regime_ok_trend_range_and_missing():
+    from trading_agent.strategy import signals
+
+    cfg = make_strategy(regime_tf="D", require_regime=True)
+    up = _ramp("D", 120, 0.6500, 0.0010)
+    assert signals.regime_ok({"D": up}, cfg, "LONG") is None
+    assert signals.regime_ok({"D": up}, cfg, "SHORT") == "regime_against"
+    flat = _ramp("D", 120, 0.6500, 0.0)
+    assert signals.regime_ok({"D": flat}, cfg, "LONG") == "regime_ranging"
+    assert signals.regime_ok({"D": up.iloc[:50]}, cfg, "LONG") == "regime_insufficient_history"
+    assert signals.regime_ok({}, cfg, "LONG") == "regime_insufficient_history"
+
+
+def test_pullback_blocked_by_daily_regime():
+    snap = _snapshot("LONG")
+    snap["D"] = _ramp("D", 120, 0.7500, -0.0010)  # daily downtrend vs an H4 long
+    cfg = make_strategy(regime_tf="D", require_regime=True)
+    res = IchimokuPullback(cfg, make_pair()).evaluate(snap, NOW)
+    assert res.signal is None and res.reason == "regime_against"
+    assert IchimokuPullback(make_strategy(regime_tf="D"), make_pair()).evaluate(snap, NOW).signal is not None

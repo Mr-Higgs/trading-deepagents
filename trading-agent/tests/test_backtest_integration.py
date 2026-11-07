@@ -7,8 +7,8 @@ elsewhere). Two identical runs must produce byte-identical JSONL.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 import json
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -159,3 +159,16 @@ def test_cost_modes_differ_on_same_fixture_bars(tmp_path):
     assert results["new"] != results["old"]
     fills = [json.loads(line) for line in (tmp_path / "new.jsonl").read_text().splitlines() if '"FILL"' in line]
     assert fills, "fixture should produce at least one fill"
+
+
+def test_liquidate_at_end_books_open_positions(tmp_path):
+    path = tmp_path / "events.jsonl"
+    log = EventLog(path, run_id="test", strategy_version="v1.0.0")
+    cfg = _cfg()
+    equity = engine.run(_FakeSource(_BARS[:5]), _StubStrategy(), RiskEngine(cfg.risk, cfg.pair), SimulatedBackend(0.0001, 1.0, 0.0), log, cfg, starting_equity=10_000.0, liquidate_at_end=True)
+    log.close()
+    records = [json.loads(x) for x in path.read_text().splitlines()]
+    exits = [r for r in records if r["type"] == "EXIT"]
+    assert exits[-1]["exit_reason"] == "END_OF_WINDOW"  # trade B was still open at the last bar
+    assert records[-1]["type"] == "RUN_END" and records[-1]["final_equity"] == pytest.approx(equity)
+    assert equity == pytest.approx(10_000 + sum(r["pnl"] for r in exits))

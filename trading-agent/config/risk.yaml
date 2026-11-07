@@ -1,11 +1,11 @@
 # Hard risk rules (spec). Money logic reads these; nothing here is discretionary.
 account_ccy: USD
 risk_pct: 0.01                  # max 1% equity risked per trade
-max_trades_per_day: 5           # spec: max 2-3 trades/day
-max_concurrent_positions: 3     # v1.1: at most one open position at a time (no correlated stacking)
+max_trades_per_day: 5           # max new entries per trading day
+max_concurrent_positions: 3     # max simultaneous open positions (daily loss cap below also budgets their open stop risk)
 min_stop_pips: 8.0                # v1.1: reject signals with a stop tighter than this (avoids oversized positions + cost drag)
 min_rr: 2.0                     # reject signals whose reward/risk is below this floor (>=1:2, target 1:3)
-max_daily_loss_pct: 0.03        # halt the day if realized loss breaches this
+max_daily_loss_pct: 0.03        # halt the day if realized loss breaches this; new trades are sized so realized + open stop risk stays within it
 trading_day_reset_utc: "21:00"  # broker rollover = day boundary for counts/loss (NOT UTC midnight)
 kill_switch: false              # flip true to block all new entries immediately
 news_windows: []                # [{start: <iso>, end: <iso>, reason: str}] — manual extras; auto ones below
@@ -14,7 +14,9 @@ news_auto:                      # blackouts auto-built from the stored calendar 
   calendar: data/calendar/economic_calendar.csv   # columns: time,currency,impact,title[,forecast,previous,actual,published]
   minutes_before: 30
   minutes_after: 30
-  impacts: [High]
+  impacts: [High, Medium]       # Economic News.pdf list = High; secondary releases = Medium
+  impact_minutes: {High: [30, 30], Medium: [15, 15]}   # per-event before_min/after_min columns win (FOMC 30/90, RBA 30/60)
+sizing_cost_pips: 1.5           # expected entry cost (half spread + slippage) + stop slippage, added to the stop distance for sizing and min_rr
 leverage: 50                    # margin check: notional/leverage must fit in equity*max_margin_usage (null => off)
 max_margin_usage: 1.0
 
@@ -24,7 +26,7 @@ execution:
   sim_slippage_pips: 0.3
   price_mode: bidask            # legacy (flat cost once at entry, mid exits) | bidask (side-correct) | mid (bidask fills from mid +/- modeled spread)
   spread_model: fitted          # flat | profile (rollover/Tokyo/weekend widening) | fitted (spread_table JSON from `python -m trading_agent.costs fit`)
-  spread_table: costs/AUD_USD_spread.json  # fitted on pre-holdout (<2026-07-01) BA M5 bars; relative to config/
+  spread_table: costs/AUD_USD_spread.json  # hour-of-week spreads fitted on pre-holdout (<2026-07-01) BA M5 bars; relative to config/
   stop_slippage_pips: 0.5       # extra adverse slippage on stop fills
   widening: {rollover_mult: 3.0, tokyo_open_mult: 1.5, weekend_open_mult: 4.0}
   financing: true               # rollover swap from config/financing.yaml
@@ -32,7 +34,7 @@ execution:
 management:                     # in-trade stop management (defaults off => hold to stop/TP)
   breakeven_enabled: true       # move stop to breakeven once in profit, then trail
   breakeven_trigger_pips: 10.0  # arm BE only once price is >=10 pips in profit
-  breakeven_buffer_pips: 0.0    # then move stop to true entry (risk-free at 0)
+  breakeven_buffer_pips: 1.0    # BE stop sits this far past the fill so a breakeven exit covers stop slippage
   breakeven_trigger_r: 1.5      # fallback R-multiple arm when breakeven_trigger_pips == 0
   trail_mode: kijun             # "off" | "kijun" | "pips" — how to trail once at breakeven
   trail_buffer_pips: 12.0         # (kijun trail) gap below/above the Kijun — breathing room; 0 => use breakeven_buffer_pips
@@ -42,5 +44,6 @@ management:                     # in-trade stop management (defaults off => hold
     legs:
       - {level: kijun, fraction: 0.5}
       - {level: span_a, fraction: 0.25}
+    min_leg_r: 1.0               # a leg banks only at a level >= 1R beyond entry (a Kijun next to entry is skipped)
     move_be_after_first: true
     runner_trail: kijun

@@ -129,3 +129,4 @@ class AccountState:
     balance: float
     open_positions: int = 0
     margin_used: float = 0.0  # account-ccy margin already locked by open positions
+    open_risk: float = 0.0  # account-ccy loss if every open position hit its current stop

@@ -46,7 +46,7 @@ def run_one(cfg: AppConfig, source: HistoricalOandaSource, log_path: Path, equit
     log_path.unlink(missing_ok=True)
     log = EventLog(log_path, run_id=log_path.stem, strategy_version=cfg.strategy_version)
     try:
-        engine.run(source, build_strategy(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair, fx=fx), build_simulated_backend(cfg, fx), log, cfg, starting_equity=equity)
+        engine.run(source, build_strategy(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair, fx=fx), build_simulated_backend(cfg, fx), log, cfg, starting_equity=equity, liquidate_at_end=True)
     finally:
         log.close()
     return analyze(log_path, starting_equity=equity)
@@ -80,7 +80,7 @@ def main() -> None:  # pragma: no cover - needs OANDA data
     rows = []
     for name in args.strategies:
         cfg0 = replace(base, strategy=replace(base.strategy, name=name))
-        tfs = {"trend": cfg0.strategy.trend_tf, "bias": cfg0.strategy.bias_tf, "entry": cfg0.strategy.entry_tf}
+        tfs = cfg0.strategy.timeframes()
         src = HistoricalOandaSource.from_oanda(client, cfg0.pair.symbol, tfs, start, end, cache_dir=args.cache, price="BA")
         fx = load_fx_converter(cfg0, client, start, end, cache_dir=args.cache)
         for mode in COST_MODES:

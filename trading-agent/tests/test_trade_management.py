@@ -116,7 +116,7 @@ def test_manage_open_trades_emits_stop_modified_after_10_pip_trigger():
     manage_open_trades(backend, _bar(1.0040, 1.0015, 1.0035, 1.0010), {}, T, cfg, log)  # type: ignore[arg-type]
     assert len(backend.moved) == 1
     tid, new_stop = backend.moved[0]
-    assert tid == "s-t1" and abs(new_stop - 1.0000) < 1e-9
+    assert tid == "s-t1" and abs(new_stop - (1.0000 + cfg.risk.management.breakeven_buffer_pips * 0.0001)) < 1e-9
     assert log.events and log.events[0][0] == "STOP_MODIFIED" and log.events[0][1]["reason"] == "breakeven"
 
 
@@ -152,3 +152,24 @@ def test_scale_out_long_banks_at_kijun(monkeypatch):
     assert len(events) == 1 and events[0].partial
     assert events[0].units == 500
     assert sim.open_positions()[0].remaining_units == 500
+
+
+def test_scale_out_skips_level_closer_than_min_leg_r(monkeypatch):
+    import dataclasses
+
+    from trading_agent import trade_management as tm
+
+    cfg = load_config("config")
+    scale = ScaleOutConfig(enabled=True, legs=(ScaleLeg("kijun", 0.5),), move_be_after_first=True, runner_trail="off", min_leg_r=1.0)
+    mgmt = dataclasses.replace(cfg.risk.management, breakeven_enabled=False, scale_out=scale)
+    cfg = dataclasses.replace(cfg, risk=dataclasses.replace(cfg.risk, management=mgmt))
+    sim = SimulatedBackend(pip_size=0.0001, spread_pips=0, slippage_pips=0)
+    sim.submit(OrderRequest("AUD_USD", 1000, stop=0.9950, tp=1.0100, signal_id="s", trade_id="s-t5", strategy_version="v"))
+    sim.reconcile(T, _bar(1.0000, 1.0000, 1.0000, 1.0000))
+    frame = pd.DataFrame({"o": [1.0] * 80, "h": [1.005] * 80, "l": [1.0] * 80, "c": [1.004] * 80})
+    # Kijun 2 pips above entry = 0.04R (risk 50 pips): banking it would scratch half the trade.
+    ich_df = pd.DataFrame({"kijun": [1.0002], "senkou_a": [1.008], "tenkan": [1.001], "senkou_b": [0.99], "cloud_top": [1.01], "cloud_bottom": [0.99]})
+    monkeypatch.setattr(tm, "ichimoku", lambda df, **kwargs: ich_df)  # noqa: ARG005
+    events = manage_open_trades(sim, _bar(1.0, 1.005, 1.0, 1.004), {cfg.strategy.entry_tf: frame}, T, cfg, _StubLog())
+    assert events == []
+    assert sim.open_positions()[0].remaining_units == 1000

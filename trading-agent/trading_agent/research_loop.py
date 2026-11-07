@@ -97,7 +97,7 @@ def _source(cfg, start: str, end: str, cache_dir: str) -> HistoricalOandaSource:
     if key not in _source_cache:
         from trading_agent.marketdata.oanda_client import OandaClient  # lazy: keeps import light
 
-        tfs = {"trend": cfg.strategy.trend_tf, "bias": cfg.strategy.bias_tf, "entry": cfg.strategy.entry_tf}
+        tfs = cfg.strategy.timeframes()
         _source_cache[key] = HistoricalOandaSource.from_oanda(
             OandaClient.from_env(), cfg.pair.symbol, tfs, _utc_day(start), _utc_day(end), cache_dir=cache_dir
         )

@@ -92,8 +92,8 @@ def _leg_reached(bar: Candle, level: float, long: bool) -> bool:
     return bar.h >= level if long else bar.l <= level
 
 
-def _in_profit_level(entry: float, level: float, long: bool) -> bool:
-    return level > entry if long else level < entry
+def _in_profit_level(entry: float, level: float, long: bool, min_dist: float = 0.0) -> bool:
+    return level > entry + min_dist if long else level < entry - min_dist
 
 
 def _scale_out_events(
@@ -114,7 +114,7 @@ def _scale_out_events(
     long = pos.remaining_units > 0 if pos.remaining_units else pos.units > 0
     leg = scale.legs[pos.legs_filled]
     level = _level_price(leg.level, ichi_row)
-    if level is None or not _in_profit_level(pos.entry, level, long) or not _leg_reached(bar, level, long):
+    if level is None or not _in_profit_level(pos.entry, level, long, scale.min_leg_r * abs(pos.entry - pos.init_stop)) or not _leg_reached(bar, level, long):
         return events
 
     orig_mag = abs(pos.units)

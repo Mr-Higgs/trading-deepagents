@@ -65,6 +65,18 @@ def _margin_used(backend: ExecutionBackend, risk: RiskEngine, now) -> float:
     return sum(abs(p.remaining_units or p.units) * risk.margin_per_unit(p.entry, now) for p in backend.open_positions())
 
 
+def _open_risk(backend: ExecutionBackend, risk: RiskEngine, now) -> float:
+    """Account-ccy loss if every open position were stopped at its current stop (0 for stops past entry)."""
+    if not hasattr(backend, "open_positions"):
+        return 0.0
+    total = 0.0
+    for p in backend.open_positions():
+        size = p.remaining_units or p.units
+        per_unit = (p.entry - p.stop) if size > 0 else (p.stop - p.entry)
+        total += max(per_unit, 0.0) * abs(size)
+    return total * risk.quote_to_account(now) if total else 0.0
+
+
 def _signal_rr(sig) -> float:
     risk = abs(sig.entry_ref - sig.stop)
     if risk <= 0:
@@ -80,8 +92,13 @@ def run(
     log: EventLog,
     cfg: AppConfig,
     starting_equity: float = 10_000.0,
+    *,
+    liquidate_at_end: bool = False,
 ) -> float:
-    """Drive the loop to exhaustion of `source.stream()`; returns final equity."""
+    """Drive the loop to exhaustion of `source.stream()`; returns final equity.
+
+    `liquidate_at_end` (backtests) closes positions still open at the last bar so final equity includes them.
+    """
     reset = cfg.risk.trading_day_reset_utc
     equity = starting_equity
     day = None
@@ -137,7 +154,7 @@ def run(
         log.write("SIGNAL", ts=now, **payload)
 
         # 4. risk gate + sizing
-        acct = AccountState(equity=equity, balance=equity, open_positions=len(backend.open_trades()), margin_used=_margin_used(backend, risk, now))
+        acct = AccountState(equity=equity, balance=equity, open_positions=len(backend.open_trades()), margin_used=_margin_used(backend, risk, now), open_risk=_open_risk(backend, risk, now))
         dec = risk.evaluate(sig, acct, day, now)
         if not dec.approved:
             log.write("REJECT", ts=now, reason=dec.reason, signal_id=sig.signal_id)
@@ -170,6 +187,9 @@ def run(
             rr=round(_signal_rr(sig), 4),
         )
 
+    if now is not None and liquidate_at_end and hasattr(backend, "liquidate"):
+        for ev in backend.liquidate():
+            equity = _apply_exit(ev, equity, day, cfg, log, now)
     if now is not None:
         log.write("RUN_END", ts=now, reason="run_end", final_equity=equity)
     return equity

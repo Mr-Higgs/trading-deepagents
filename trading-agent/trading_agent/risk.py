@@ -85,7 +85,10 @@ class RiskEngine:
         if stop_distance < r.min_stop_pips * self.pair.pip_size:  # v1.1: too-tight stop => oversized position + cost drag
             return self._reject(sig, "below_min_stop")
 
-        reward = abs(sig.tp - sig.entry_ref)
+        # Sizing/R:R use the stop distance from the expected fill: entry crosses the spread and stops slip.
+        cost = r.sizing_cost_pips * self.pair.pip_size
+        reward = abs(sig.tp - sig.entry_ref) - cost
+        stop_distance += cost
         if sig.direction == "LONG":
             if not (sig.stop < sig.entry_ref < sig.tp):
                 if sig.stop >= sig.entry_ref:
@@ -112,5 +115,12 @@ class RiskEngine:
             units_mag = min(units_mag, math.floor(max(free, 0.0) / per_unit + 1e-9))
             if units_mag < self.pair.min_units:
                 return self._reject(sig, "insufficient_margin")
+        # Daily loss cap covers open exposure too: realized loss + open stop risk + this trade must fit.
+        if r.max_daily_loss_pct > 0:
+            budget = abs(r.max_daily_loss_pct) * acct.equity + min(day.realized_pnl, 0.0) - acct.open_risk
+            per_unit_risk = stop_distance * self.quote_to_account(now)
+            units_mag = min(units_mag, math.floor(max(budget, 0.0) / per_unit_risk + 1e-9))
+            if units_mag < self.pair.min_units:
+                return self._reject(sig, "daily_loss_budget")
         units = units_mag if sig.direction == "LONG" else -units_mag
         return RiskDecision(approved=True, units=units, risk_amount=risk_amount, reason="approved", signal=sig)

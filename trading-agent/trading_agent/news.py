@@ -39,6 +39,11 @@ def known_as_of(cal: pd.DataFrame, as_of: datetime) -> pd.DataFrame:
     return cal[cal["published"] <= pd.Timestamp(as_of)]
 
 
+def _override(row: object, col: str, default: int) -> float:
+    v = getattr(row, col, None)
+    return default if v is None or pd.isna(v) else v
+
+
 def pair_currencies(instrument: str) -> tuple[str, ...]:
     return tuple(instrument.upper().split("_"))
 
@@ -50,16 +55,26 @@ def build_news_windows(
     minutes_before: int = 30,
     minutes_after: int = 30,
     impacts: tuple[str, ...] = ("High",),
+    impact_minutes: dict[str, tuple[int, int]] | None = None,
 ) -> tuple[NewsWindow, ...]:
-    """Blackout windows around each matching event, merged where they overlap."""
+    """Blackout windows around each matching event, merged where they overlap.
+
+    Window per event: the row's own `before_min`/`after_min` (e.g. FOMC press conference) if set, else
+    `impact_minutes[impact]`, else `minutes_before`/`minutes_after`.
+    """
+    impact_minutes = {k.lower(): v for k, v in (impact_minutes or {}).items()}
     ccys = set(pair_currencies(instrument))
     wanted = {i.lower() for i in impacts}
     rows = cal[cal["currency"].str.upper().isin(ccys) & cal["impact"].str.lower().isin(wanted)]
-    windows: list[NewsWindow] = []
+    spans = []
     for r in rows.itertuples(index=False):
         t = pd.Timestamp(r.time).to_pydatetime().astimezone(timezone.utc)
-        start, end = t - timedelta(minutes=minutes_before), t + timedelta(minutes=minutes_after)
-        reason = f"{r.currency} {r.title}"
+        before, after = impact_minutes.get(str(r.impact).lower(), (minutes_before, minutes_after))
+        before = int(_override(r, "before_min", before))
+        after = int(_override(r, "after_min", after))
+        spans.append((t - timedelta(minutes=before), t + timedelta(minutes=after), f"{r.currency} {r.title}"))
+    windows: list[NewsWindow] = []
+    for start, end, reason in sorted(spans, key=lambda s: s[0]):
         if windows and start <= windows[-1].end:
             last = windows[-1]
             windows[-1] = NewsWindow(start=last.start, end=max(last.end, end), reason=f"{last.reason}; {reason}")

@@ -56,6 +56,159 @@ def tk_cross(ichi: pd.DataFrame, direction: str) -> bool:
     return _cross(prev_diff, now_diff) == ("up" if direction == "LONG" else "down")
 
 
+def htf_confluence(df: pd.DataFrame, ichi: pd.DataFrame, direction: str) -> bool:
+    """Higher-timeframe confirmation: Tenkan vs Kijun AND close vs Kijun both agree with `direction`.
+
+    LONG needs Tenkan > Kijun with price closed above the Kijun (SHORT mirrors). False on NaN lines.
+    """
+    c, k = _num(df["c"].iloc[-1]), _num(ichi["kijun"].iloc[-1])
+    if c is None or k is None or not tk_momentum(ichi, direction):
+        return False
+    return c > k if direction == "LONG" else c < k
+
+
+def regime_ok(snapshot: dict[str, pd.DataFrame], cfg, direction: str) -> str | None:
+    """Top-down regime screen (e.g. daily); returns the failing skip reason or None.
+
+    Trending in the trade direction = regime close beyond its cloud on the trade side (inside = ranging)
+    and Tenkan/Kijun aligned. Fails closed when the regime frame is missing or too short.
+    """
+    from trading_agent.indicators import ichimoku
+
+    p = cfg.ichimoku
+    df = snapshot.get(cfg.regime_tf) if cfg.regime_tf else None
+    if df is None or len(df) < p.senkou_b + p.displacement:
+        return "regime_insufficient_history"
+    ichi = ichimoku(df, tenkan=p.tenkan, kijun=p.kijun, senkou_b=p.senkou_b, displacement=p.displacement)
+    c, top, bot = _num(df["c"].iloc[-1]), _num(ichi["cloud_top"].iloc[-1]), _num(ichi["cloud_bottom"].iloc[-1])
+    if c is None or top is None or bot is None:
+        return "regime_insufficient_history"
+    if bot <= c <= top:
+        return "regime_ranging"
+    if (c > top) != (direction == "LONG"):
+        return "regime_against"
+    if not tk_momentum(ichi, direction):
+        return "regime_tk_against"
+    return None
+
+
+def htf_confluent(snapshot: dict[str, pd.DataFrame], cfg, direction: str) -> bool:
+    """`htf_confluence` holds on every configured timeframe above the entry one (trend, then bias).
+
+    `cfg` is a `StrategyConfig`. Timeframes equal to the entry timeframe are skipped (they are not higher).
+    """
+    from trading_agent.indicators import ichimoku  # noqa: PLC0415 - keeps this module import-light
+
+    p = cfg.ichimoku
+    for tf in dict.fromkeys((cfg.trend_tf, cfg.bias_tf)):
+        if tf == cfg.entry_tf:
+            continue
+        df = snapshot.get(tf)
+        if df is None or len(df) < p.kijun:
+            return False
+        ichi = ichimoku(df, tenkan=p.tenkan, kijun=p.kijun, senkou_b=p.senkou_b, displacement=p.displacement)
+        if not htf_confluence(df, ichi, direction):
+            return False
+    return True
+
+
+def _sign(direction: str) -> int:
+    return 1 if direction == "LONG" else -1
+
+
+def touch_and_hold(bar, level: float | None, direction: str, band: float = 0.0) -> bool:
+    """Bar tagged `level` (within `band`) and closed back on the trend side: a rejection of that line."""
+    lvl = _num(level)
+    if lvl is None:
+        return False
+    if direction == "LONG":
+        return float(bar["l"]) <= lvl + band and float(bar["c"]) > lvl
+    return float(bar["h"]) >= lvl - band and float(bar["c"]) < lvl
+
+
+def fib_golden_zone(df: pd.DataFrame, lookback: int, direction: str, lo: float = 0.5, hi: float = 0.618) -> bool:
+    """Latest close sits in the `lo`..`hi` retracement of the last impulse leg within `lookback` bars.
+
+    LONG: the leg runs from the lowest low up to the later highest high; the zone is measured down from that
+    high. SHORT mirrors. False when the extreme comes first (no completed leg in the trend direction).
+    """
+    w = df.iloc[-lookback:]
+    if len(w) < 3:
+        return False
+    hi_pos, lo_pos = int(w["h"].to_numpy().argmax()), int(w["l"].to_numpy().argmin())
+    top, bot = float(w["h"].iloc[hi_pos]), float(w["l"].iloc[lo_pos])
+    rng = top - bot
+    c = float(w["c"].iloc[-1])
+    if rng <= 0:
+        return False
+    if direction == "LONG":
+        return lo_pos < hi_pos < len(w) - 1 and top - hi * rng <= c <= top - lo * rng
+    return hi_pos < lo_pos < len(w) - 1 and bot + lo * rng <= c <= bot + hi * rng
+
+
+def swing_stop(df: pd.DataFrame, lookback: int, direction: str, buffer: float) -> float:
+    """Beyond the most recent swing: lowest low (LONG) / highest high (SHORT) over `lookback` bars, +/- buffer."""
+    w = df.iloc[-lookback:]
+    return float(w["l"].min()) - buffer if direction == "LONG" else float(w["h"].max()) + buffer
+
+
+def directional_slope(series: pd.Series, n: int, direction: str) -> float:
+    """Change of `series` over `n` bars, signed so a move in the trade direction is positive; -inf if unknown."""
+    if len(series) <= n:
+        return float("-inf")
+    now, past = _num(series.iloc[-1]), _num(series.iloc[-1 - n])
+    if now is None or past is None:
+        return float("-inf")
+    return (now - past) * _sign(direction)
+
+
+def close_crossed(df: pd.DataFrame, level: pd.Series, direction: str) -> bool:
+    """Close crossed `level` on the latest bar in the trade direction (prev close on/behind it)."""
+    if len(df) < 2 or len(level) < 2:
+        return False
+    pc, cc = _num(df["c"].iloc[-2]), _num(df["c"].iloc[-1])
+    pl, lv = _num(level.iloc[-2]), _num(level.iloc[-1])
+    prev_diff = None if (pc is None or pl is None) else pc - pl
+    now_diff = None if (cc is None or lv is None) else cc - lv
+    return _cross(prev_diff, now_diff) == ("up" if direction == "LONG" else "down")
+
+
+def quality_checks(ichi: pd.DataFrame, cfg, direction: str, pip: float, *, tk: bool = True, cloud: bool = True) -> dict[str, bool]:
+    """Ichimoku.pdf signal-strength checks with a threshold > 0, keyed by their skip reason (True = passed).
+
+    `tk`: Tenkan/Kijun separation and Kijun slope (a steep, wide cross is strong). `cloud`: cloud thickness and
+    Span A slope (a thin or flat cloud is a fragile / ranging market).
+    """
+    last = ichi.iloc[-1]
+    n = cfg.slope_lookback
+    out: dict[str, bool] = {}
+    if tk:
+        t, k = _num(last["tenkan"]), _num(last["kijun"])
+        if cfg.min_tk_separation_pips > 0:
+            out["narrow_tk"] = t is not None and k is not None and abs(t - k) >= cfg.min_tk_separation_pips * pip
+        if cfg.min_kijun_slope_pips > 0:
+            out["flat_kijun"] = directional_slope(ichi["kijun"], n, direction) >= cfg.min_kijun_slope_pips * pip
+    if cloud:
+        a, b = _num(last["senkou_a"]), _num(last["senkou_b"])
+        if cfg.min_cloud_thickness_pips > 0:
+            out["thin_cloud"] = a is not None and b is not None and abs(a - b) >= cfg.min_cloud_thickness_pips * pip
+        if cfg.min_cloud_slope_pips > 0:
+            out["flat_cloud"] = directional_slope(ichi["senkou_a"], n, direction) >= cfg.min_cloud_slope_pips * pip
+    return out
+
+
+def quality_ok(ichi: pd.DataFrame, cfg, direction: str, pip: float, *, tk: bool = True, cloud: bool = True) -> str | None:
+    """Single-frame quality gate: first failing check's reason (all must pass), or None."""
+    return next((r for r, ok in quality_checks(ichi, cfg, direction, pip, tk=tk, cloud=cloud).items() if not ok), None)
+
+
+def quality_gate(checks: dict[str, bool], cfg) -> str | None:
+    """`quality_min_pass` 0 = every enabled check must pass; N > 0 = at least N of them (a confluence score)."""
+    if cfg.quality_min_pass <= 0:
+        return next((r for r, ok in checks.items() if not ok), None)
+    return "weak_quality" if sum(checks.values()) < min(cfg.quality_min_pass, len(checks)) else None
+
+
 def exit_cross(df: pd.DataFrame, ichi: pd.DataFrame, direction: str) -> bool:
     """WFX early exit for an OPEN position: close-vs-Kijun OR Tenkan-vs-Kijun crosses against it.
 
