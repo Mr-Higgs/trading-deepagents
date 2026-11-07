@@ -1,9 +1,11 @@
 # Phase-2 LLM decision layer. Applies to backtest, live, and demo (any run built via _make_strategy).
-# Needs ANTHROPIC_API_KEY in .env. Absent file => deterministic mode (no LLM in the loop).
+# Gate model: `devin-cli:<model>` uses the Devin CLI login (`devin auth login`; list models with `devin models`) and
+# no API key. `anthropic:<model>` uses the deepagents orchestrator + sub-agents and needs ANTHROPIC_API_KEY in .env.
+# Absent file => deterministic mode (no LLM in the loop).
 mode: deterministic                       # deterministic | agent
 authority: gate                           # gate = approve/veto only | signal = LLM may emit refined direction/entry/stop/tp
-orchestrator_model: anthropic:claude-opus-4-8    # gate/decision model (candidates are rare, so opus is cheap here)
-analyst_model: anthropic:claude-haiku-4-5        # the 3 sub-agents
+orchestrator_model: devin-cli:claude-sonnet-5-5-medium  # gate model; alt: anthropic:claude-opus-4-8
+analyst_model: anthropic:claude-haiku-4-5        # the 3 sub-agents (anthropic: only; devin-cli fetches analyst data in code)
 analysts:
   technical: true                         # Ichimoku H4/H1/M15 context (no external fetch)
   fundamental: true                       # economic calendar (imminent high-impact events)
