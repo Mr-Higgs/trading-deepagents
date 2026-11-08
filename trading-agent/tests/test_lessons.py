@@ -130,6 +130,9 @@ def test_write_research_skips_rows_already_written(tmp_path):
         write_research(rows, tmp_path, datetime(2026, 7, 3, tzinfo=UTC))
     assert (tmp_path / "JOURNAL.md").read_text().count("live-1:s1-t1") == 1
     assert (tmp_path / "HYPOTHESES.md").read_text().count("trail_buffer_pips") == 1
+    (tmp_path / "HYPOTHESES.md").unlink()  # journal written, hypothesis write lost: the retry still publishes it
+    write_research(rows, tmp_path, datetime(2026, 7, 3, tzinfo=UTC))
+    assert (tmp_path / "HYPOTHESES.md").read_text().count("trail_buffer_pips") == 1
 
 
 def test_review_limit_takes_most_recent(tmp_path):

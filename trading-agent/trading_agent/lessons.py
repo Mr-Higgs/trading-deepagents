@@ -288,13 +288,14 @@ def _read(path: Path) -> str:
 def write_research(rows: list[dict[str, Any]], research_dir: Path, now: datetime) -> None:
     """Append a dated section to JOURNAL.md and any hypotheses to HYPOTHESES.md (markdown only, never config)."""
     research_dir.mkdir(parents=True, exist_ok=True)
-    rows = [r for r in rows if f"`{r['key']}`" not in _read(research_dir / "JOURNAL.md")]  # a retried batch isn't re-appended
-    if not rows:
-        return
-    lines = [f"\n## Post-trade review {now:%Y-%m-%d %H:%M}Z ({len(rows)} trades)\n"]
-    lines += [f"{_lesson_line(r)} `{r['key']}`" for r in rows]
-    with (research_dir / "JOURNAL.md").open("a") as fh:
-        fh.write("\n".join(lines) + "\n")
+    # each file skips keys it already has, so a retried batch is neither re-appended nor left half-written
+    journal = _read(research_dir / "JOURNAL.md")
+    new = [r for r in rows if f"`{r['key']}`" not in journal]
+    if new:
+        lines = [f"\n## Post-trade review {now:%Y-%m-%d %H:%M}Z ({len(new)} trades)\n"]
+        lines += [f"{_lesson_line(r)} `{r['key']}`" for r in new]
+        with (research_dir / "JOURNAL.md").open("a") as fh:
+            fh.write("\n".join(lines) + "\n")
     hyps = [r for r in rows if r.get("hypothesis") and f", {r['key']})" not in _read(research_dir / "HYPOTHESES.md")]
     if hyps:
         with (research_dir / "HYPOTHESES.md").open("a") as fh:
