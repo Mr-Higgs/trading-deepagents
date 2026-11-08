@@ -24,6 +24,7 @@ import pandas as pd
 
 from trading_agent.config import PairConfig
 from trading_agent.indicators import price_dislocation
+from trading_agent.lessons import LessonStore
 from trading_agent.strategy.agents.schemas import PROMPT_VERSION, Verdict
 from trading_agent.strategy.agents.verdict_cache import VerdictCache, key_for
 from trading_agent.strategy.base import Strategy, StrategyResult
@@ -44,15 +45,22 @@ class AgentStrategy:
         *,
         point_in_time: bool = False,
         veto_default: bool = False,
+        lessons: LessonStore | None = None,
+        lessons_n: int = 5,
     ) -> None:
         """`point_in_time=True` (backtests) pins every analyst tool call to the bar timestamp.
 
         `veto_default` only keys the verdict cache: the posture lives in the orchestrator's system prompt, so a
         veto-biased gate must never replay (or overwrite) default-approve verdicts for the same trade prompt.
+
+        `lessons` appends the last `lessons_n` post-trade lessons on the instrument whose outcome was known by the
+        bar time. They are part of the prompt, so the verdict cache keys on them too.
         """
         self.inner = inner
         self.point_in_time = point_in_time
         self.veto_default = veto_default
+        self.lessons = lessons
+        self.lessons_n = lessons_n
         self._now: datetime | None = None
         self.orchestrator = orchestrator
         self.pair = pair
@@ -100,7 +108,7 @@ class AgentStrategy:
             return signal
 
     def _gate(self, signal: Signal) -> Verdict | None:
-        prompt = self._prompt(signal, self.authority)
+        prompt = self._prompt(signal, self.authority) + self._lessons_note(signal)
         version = f"{PROMPT_VERSION}+pit" if self.point_in_time else PROMPT_VERSION  # PIT verdicts never replay live-data ones
         if self.veto_default:
             version += "+veto"  # posture-specific key; default-approve keys stay unchanged
@@ -123,6 +131,21 @@ class AgentStrategy:
         if v is not None and key is not None:
             self.cache.put(key, v.model_dump())  # only successful decisions are cached, never errors
         return v
+
+    def _lessons_note(self, signal: Signal) -> str:
+        """Past lessons block for the prompt; empty when disabled, none qualify, or the store can't be read."""
+        if self.lessons is None:
+            return ""
+        try:
+            ctx = self.lessons.past_context(signal.instrument, as_of=self._now, n=self.lessons_n)
+        except Exception:  # noqa: BLE001 - a context extra must never break the gate
+            return ""
+        if not ctx:
+            return ""
+        return (
+            "\n\nLessons from past closed trades on this instrument (most recent first; each is one trade, weigh them "
+            f"as context, not rules):\n{ctx}"
+        )
 
     def _with_verdict(self, signal: Signal, verdict: Verdict) -> Signal:
         """Attach the verdict into features so the SIGNAL event logs it (engine unchanged)."""

@@ -216,6 +216,30 @@ dataclass and the deterministic `RiskEngine` + backend will consume it unchanged
 
 Every signal, skip, rejection, fill, and exit is one JSONL line with a `reason` (`eventlog.py`).
 
+## Post-trade lessons
+
+`trading_agent.lessons` reviews closed trades and keeps a lesson for each. It never changes config.
+
+```bash
+uv run --group phase2 python -m trading_agent.lessons data/logs/events-live-*.jsonl --limit 20   # --dry-run to preview
+```
+
+- **Settle:** replays each JSONL log into closed trades (total P/L including partials and swap,
+  `R = P/L / risk_amount`, `resolved` = time of the final exit). Open trades and backtest
+  `END_OF_WINDOW` liquidations are skipped; a re-run appended to the same log replaces the earlier one.
+- **Reflect:** one structured call per not-yet-reviewed trade (`--model`, default `anthropic:claude-haiku-4-5`)
+  returns a 2-4 sentence lesson and, only if the trade points at one, a testable config hypothesis.
+- **Record:** `data/lessons.jsonl` (idempotent by `run_id:trade_id`; a failed reflection is retried next pass), a
+  dated section in `research/JOURNAL.md`, and hypotheses appended to `research/HYPOTHESES.md`, which the research
+  loop already reads. `--source live` reviews paper/live trades only; `--no-research` skips the markdown.
+- **Gate (opt-in):** `lessons: true` in `config/agents.yaml` appends the last `lessons_n` lessons on the instrument
+  to the gate prompt. Only lessons whose trade had closed by the bar time are shown, so backtests stay
+  point-in-time. The lessons are part of the prompt, so the verdict cache keys on them; with the flag off (or an
+  empty store) prompts and cache keys are unchanged.
+
+Adapted from [TradingAgents](https://github.com/TauricResearch/TradingAgents) (Apache-2.0) memory log, settlement
+and reflection.
+
 ## Roadmap
 
 Phases 1 and 2 are built. The original foundation spec (`docs/trading-system/forex_agent_foundation_spec.pdf`)
