@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from pathlib import Path
@@ -119,7 +120,7 @@ class RiskConfig:
     max_daily_loss_pct: float
     trading_day_reset_utc: time
     kill_switch: bool
-    news_windows: tuple[NewsWindow, ...]
+    news_windows: Iterable[NewsWindow]
     execution: ExecutionConfig
     # v1.1 containment (defaults are no-ops so a config omitting them behaves exactly like v1.0):
     max_concurrent_positions: int = 1_000_000  # cap simultaneous open positions (kills correlated stacking)
@@ -142,6 +143,7 @@ class NewsAutoConfig:
     minutes_after: int = 30
     impacts: tuple[str, ...] = ("High",)
     impact_minutes: dict[str, tuple[int, int]] = field(default_factory=dict)  # per-impact (before, after) override
+    refresh_hours: float = 6.0  # live: re-pull this week's Forex Factory feed this often
 
 
 @dataclass(frozen=True)
@@ -314,6 +316,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         minutes_after=int(na.get("minutes_after", 30)),
         impacts=tuple(na.get("impacts", ["High"])),
         impact_minutes={str(k): (int(v[0]), int(v[1])) for k, v in (na.get("impact_minutes") or {}).items()},
+        refresh_hours=float(na.get("refresh_hours", 6.0)),
     )
     news = tuple(
         NewsWindow(

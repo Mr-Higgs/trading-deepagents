@@ -19,6 +19,7 @@ import argparse
 import os
 import re
 import time as _time
+import warnings
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
@@ -169,6 +170,18 @@ def parse_rba_year(html: str, year: int) -> list[dict]:
     return [_row(datetime.combine(d, time(14, 30), SYD), "AUD", "High", "RBA Cash Rate / Statement", "rba.gov.au", 30, 60) for d in days]
 
 
+def _rba_rows(year: int) -> list[dict]:
+    """RBA rows for `year`; a 404 means the year's schedule page isn't published yet (warn, don't fail)."""
+    try:
+        html = _http_text(RBA_URL.format(year=year))
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            warnings.warn(f"RBA decisions page for {year} not published yet; no AUD rate rows for that year", stacklevel=2)
+            return []
+        raise
+    return parse_rba_year(html, year)
+
+
 def parse_abs_release(html: str) -> datetime | None:
     """'Release date and time 16/10/2025 11:30am AEDT' on an ABS edition page -> aware datetime."""
     m = re.search(r"Release date and time (\d{2}/\d{2}/\d{4}) (\d{1,2}):(\d{2})(am|pm)", _text(html))
@@ -242,7 +255,7 @@ def _http_json(url: str, params: dict | None = None) -> dict | list:
 def build(start: date, end: date, *, fred_key: str, pause: float = 0.5) -> list[dict]:
     rows = parse_fomc(_http_text(FOMC_URL)) + fred_rows(start, end, fred_key, _http_json) + ism_rows(start, end)
     for year in range(start.year, end.year + 1):
-        rows += parse_rba_year(_http_text(RBA_URL.format(year=year)), year)
+        rows += _rba_rows(year)
     for rel in ABS_RELEASES:
         for ed in abs_editions(rel, start, end):
             try:
@@ -255,6 +268,24 @@ def build(start: date, end: date, *, fred_key: str, pause: float = 0.5) -> list[
     return rows
 
 
+def merge_ff_week(out: Path = DEFAULT_OUT, currencies: Iterable[str] = ("AUD", "USD"), *, get: Callable[..., dict | list] = _http_json) -> int:
+    """Fold this week's Forex Factory (Medium/High) events into the stored calendar at `out`.
+
+    Args:
+        out: Calendar CSV to update (created, with the `COLUMNS` header, if absent).
+        currencies: Event currencies to keep (e.g. the traded pair's currencies).
+        get: HTTP-JSON fetcher, injectable for tests; called as `get(FF_WEEK_URL)`.
+
+    Returns:
+        Number of new rows added.
+    """
+    existing = pd.read_csv(out) if out.exists() else pd.DataFrame(columns=COLUMNS)
+    df = merge(existing, ff_rows(get(FF_WEEK_URL), set(currencies)))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
+    return len(df) - len(existing)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--start", default="2021-01-01")
@@ -263,17 +294,18 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--merge-ff", action="store_true", help="only fold this week's Forex Factory feed into --out")
     ap.add_argument("--currencies", default="AUD,USD")
     a = ap.parse_args(argv)
-    existing = pd.read_csv(a.out) if a.out.exists() else pd.DataFrame(columns=COLUMNS)
     if a.merge_ff:
-        df = merge(existing, ff_rows(_http_json(FF_WEEK_URL), set(a.currencies.split(","))))
+        merge_ff_week(a.out, a.currencies.split(","))
+        df = pd.read_csv(a.out)
     else:
         key = os.environ.get("FRED_API_KEY")
         if not key:
             raise SystemExit("FRED_API_KEY is required for the US release calendar")
+        existing = pd.read_csv(a.out) if a.out.exists() else pd.DataFrame(columns=COLUMNS)
         start, end = date.fromisoformat(a.start), date.fromisoformat(a.end)
         df = merge(existing, build(start, end, fred_key=key), start, end)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(a.out, index=False)
+        a.out.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(a.out, index=False)
     print(f"{len(df)} events -> {a.out}\n{df.groupby(['currency', 'impact']).size().to_string()}")
 
 

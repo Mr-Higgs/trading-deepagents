@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 
 import pandas as pd
@@ -18,13 +18,14 @@ from trading_agent.types import Candle
 
 
 class LiveOandaSource:
-    def __init__(self, client: object, instrument: str, timeframes: dict[str, str], poll_seconds: int = 60, lookback: int = LIVE_LOOKBACK) -> None:
+    def __init__(self, client: object, instrument: str, timeframes: dict[str, str], poll_seconds: int = 60, lookback: int = LIVE_LOOKBACK, *, on_poll: Callable[[], object] | None = None) -> None:
         self._client = client
         self._instrument = instrument
         self._timeframes = timeframes  # role -> granularity
         self.entry_tf = timeframes["entry"]
         self._poll = poll_seconds
         self._lookback = lookback
+        self._on_poll = on_poll  # hooks like the news-calendar refresh ride the poll cadence so they need no thread
         self._seen: set[datetime] = set()  # ponytail: unbounded; ~96 M15/day, bound it for multi-week runs
 
     def _emit_new(self, df: pd.DataFrame) -> list[Candle]:
@@ -39,6 +40,8 @@ class LiveOandaSource:
 
     def stream(self) -> Iterator[Candle]:
         while True:
+            if self._on_poll:
+                self._on_poll()
             df = self._client.recent_candles(self._instrument, self.entry_tf, self._lookback)  # type: ignore[attr-defined]
             new = self._emit_new(df)
             yield from new

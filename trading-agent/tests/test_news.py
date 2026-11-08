@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from conftest import make_risk
 
-from trading_agent.config import NewsAutoConfig
-from trading_agent.news import build_news_windows, known_as_of, load_calendar
+from trading_agent.config import NewsAutoConfig, NewsWindow
+from trading_agent.news import RefreshingNewsWindows, build_news_windows, known_as_of, load_calendar
 from trading_agent.sessions import in_news_window
 
 UTC = timezone.utc
@@ -66,3 +67,43 @@ def test_missing_calendar_warns(tmp_path):
     with pytest.warns(UserWarning, match="no news blackouts"):
         out = with_news_windows(replace(cfg, risk=risk), root=tmp_path)
     assert out.risk.news_windows == ()
+
+
+def test_refreshing_windows_cadence_and_failure():
+    clock = [datetime(2026, 11, 2, 12, 0, tzinfo=UTC)]
+    auto = NewsWindow(start=datetime(2026, 11, 3, 13, 0, tzinfo=UTC), end=datetime(2026, 11, 3, 14, 0, tzinfo=UTC), reason="auto")
+    manual = (NewsWindow(start=datetime(2026, 11, 5, 0, 0, tzinfo=UTC), end=datetime(2026, 11, 5, 1, 0, tzinfo=UTC), reason="manual"),)
+    counts = {"build": 0, "merge": 0}
+
+    def build():
+        counts["build"] += 1
+        return (auto,)
+
+    def merge():
+        counts["merge"] += 1
+
+    w = RefreshingNewsWindows(manual, build, merge, refresh_hours=6.0, now=lambda: clock[0])
+    assert list(w) == list(manual)  # constructor does not fetch
+    assert w.refresh(force=True) is True
+    assert counts == {"build": 1, "merge": 1}
+    assert list(w) == [*manual, auto]
+    assert len(w) == 2
+
+    assert w.refresh() is False  # inside the 6h cadence
+    assert counts == {"build": 1, "merge": 1}
+
+    clock[0] += timedelta(hours=6)
+    assert w.refresh() is True
+    assert counts == {"build": 2, "merge": 2}
+
+    clock[0] += timedelta(hours=6)
+
+    def boom():
+        counts["merge"] += 1
+        raise RuntimeError("boom")
+
+    w._merge = boom
+    with pytest.warns(UserWarning, match="Forex Factory refresh failed"):
+        assert w.refresh() is True
+    assert counts == {"build": 3, "merge": 3}
+    assert list(w) == [*manual, auto]  # windows rebuilt from the stored calendar despite the failed pull
