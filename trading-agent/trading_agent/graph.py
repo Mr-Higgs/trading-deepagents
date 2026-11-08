@@ -33,4 +33,3 @@ def _wrap(gate):
 
 
 agent = _gate if hasattr(_gate, "get_graph") else _wrap(_gate)
-
