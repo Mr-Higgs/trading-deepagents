@@ -75,35 +75,40 @@ def _segments(records: list[dict[str, Any]]) -> Iterable[list[dict[str, Any]]]:
 
 
 def _settle_segment(seg: list[dict[str, Any]]) -> list[ClosedTrade]:
-    signals = {r["signal_id"]: r for r in seg if r.get("type") == "SIGNAL" and r.get("signal_id")}
-    submits = {r["trade_id"]: r for r in seg if r.get("type") == "SUBMIT" and r.get("trade_id")}
-    pnl: dict[str, float] = {}
-    closed: dict[str, dict[str, Any]] = {}
+    """One pass in log order. A SUBMIT opens a trade and a later SUBMIT with the same trade_id starts a new one:
+    trade ids come from the signal's candle time, so a session that replays a candle can reuse an id."""
+    signals: dict[str, dict[str, Any]] = {}
+    open_: dict[str, tuple[dict[str, Any], dict[str, Any], float]] = {}  # trade_id -> (submit, signal, pnl so far)
+    out = []
     for r in seg:
         t, tid = r.get("type"), r.get("trade_id")
-        if tid not in submits or t not in {"EXIT", "PARTIAL_EXIT", "FINANCING"}:
-            continue
-        pnl[tid] = pnl.get(tid, 0.0) + float(r.get("pnl") or 0.0)
-        if t == "EXIT" or (t == "PARTIAL_EXIT" and r.get("remaining_units") == 0):
-            closed[tid] = r
-    out = []
-    for tid, ex in closed.items():
-        if ex.get("exit_reason") in _SKIP_EXIT_REASONS:
-            continue
-        sub = submits[tid]
-        sig = signals.get(sub.get("signal_id"), {})
-        risk = sub.get("risk_amount")
-        run_id = str(sub.get("run_id", "?"))
-        feats = sig.get("features") or {}
-        out.append(ClosedTrade(
-            key=f"{run_id}:{tid}", run_id=run_id, trade_id=tid, source=_source(run_id),
-            instrument=sig.get("instrument", "?"), direction=sig.get("direction", "?"), setup_id=sig.get("setup_id", "?"),
-            strategy_version=str(sub.get("strategy_version", "?")), opened=sub["ts"], resolved=ex["ts"],
-            pnl=round(pnl[tid], 2), r_multiple=round(pnl[tid] / float(risk), 2) if risk else None,
-            exit_reason=str(ex.get("exit_reason") or "?"), entry_ref=sig.get("entry_ref"), stop=sub.get("stop"), tp=sub.get("tp"),
-            features={k: feats[k] for k in _FEATURE_KEYS if k in feats}, verdict=feats.get("llm_verdict"),
-        ))
+        if t == "SIGNAL" and r.get("signal_id"):
+            signals[r["signal_id"]] = r
+        elif t == "SUBMIT" and tid:
+            open_[tid] = (r, signals.get(r.get("signal_id"), {}), 0.0)
+        elif tid in open_ and t in {"EXIT", "PARTIAL_EXIT", "FINANCING"}:
+            sub, sig, pnl = open_[tid]
+            pnl += float(r.get("pnl") or 0.0)
+            open_[tid] = (sub, sig, pnl)
+            if t == "EXIT" or (t == "PARTIAL_EXIT" and r.get("remaining_units") == 0):
+                del open_[tid]
+                if r.get("exit_reason") not in _SKIP_EXIT_REASONS:
+                    out.append(_closed(sub, sig, r, pnl))
     return sorted(out, key=lambda t: t.resolved)
+
+
+def _closed(sub: dict[str, Any], sig: dict[str, Any], ex: dict[str, Any], pnl: float) -> ClosedTrade:
+    tid, risk = sub["trade_id"], sub.get("risk_amount")
+    run_id = str(sub.get("run_id", "?"))
+    feats = sig.get("features") or {}
+    return ClosedTrade(
+        key=f"{run_id}:{tid}", run_id=run_id, trade_id=tid, source=_source(run_id),
+        instrument=sig.get("instrument", "?"), direction=sig.get("direction", "?"), setup_id=sig.get("setup_id", "?"),
+        strategy_version=str(sub.get("strategy_version", "?")), opened=sub["ts"], resolved=ex["ts"],
+        pnl=round(pnl, 2), r_multiple=round(pnl / float(risk), 2) if risk else None,
+        exit_reason=str(ex.get("exit_reason") or "?"), entry_ref=sig.get("entry_ref"), stop=sub.get("stop"), tp=sub.get("tp"),
+        features={k: feats[k] for k in _FEATURE_KEYS if k in feats}, verdict=feats.get("llm_verdict"),
+    )
 
 
 def settle(records: list[dict[str, Any]]) -> list[ClosedTrade]:
@@ -115,8 +120,7 @@ def settle(records: list[dict[str, Any]]) -> list[ClosedTrade]:
 
 def settle_logs(paths: Iterable[str | Path]) -> list[ClosedTrade]:
     """Backtest logs settle per file. Live logs settle as one stream: each restart starts a new log but the
-    OANDA backend keeps tracking trades opened before it, so a trade's SUBMIT and EXIT can sit in different files
-    (OANDA trade ids are account-unique, so merging is safe)."""
+    OANDA backend keeps tracking trades opened before it, so a trade's SUBMIT and EXIT can sit in different files."""
     trades: dict[str, ClosedTrade] = {}
     live: list[dict[str, Any]] = []
     for p in paths:
@@ -277,14 +281,21 @@ def review(
     return result
 
 
+def _read(path: Path) -> str:
+    return path.read_text() if path.exists() else ""
+
+
 def write_research(rows: list[dict[str, Any]], research_dir: Path, now: datetime) -> None:
     """Append a dated section to JOURNAL.md and any hypotheses to HYPOTHESES.md (markdown only, never config)."""
     research_dir.mkdir(parents=True, exist_ok=True)
+    rows = [r for r in rows if f"`{r['key']}`" not in _read(research_dir / "JOURNAL.md")]  # a retried batch isn't re-appended
+    if not rows:
+        return
     lines = [f"\n## Post-trade review {now:%Y-%m-%d %H:%M}Z ({len(rows)} trades)\n"]
     lines += [f"{_lesson_line(r)} `{r['key']}`" for r in rows]
     with (research_dir / "JOURNAL.md").open("a") as fh:
         fh.write("\n".join(lines) + "\n")
-    hyps = [r for r in rows if r.get("hypothesis")]
+    hyps = [r for r in rows if r.get("hypothesis") and f", {r['key']})" not in _read(research_dir / "HYPOTHESES.md")]
     if hyps:
         with (research_dir / "HYPOTHESES.md").open("a") as fh:
             fh.write("".join(f"- (post-trade {r['resolved'][:10]}, {r['key']}) {r['hypothesis']}\n" for r in hyps))

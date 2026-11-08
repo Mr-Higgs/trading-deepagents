@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from trading_agent.lessons import LessonStore, review, settle, settle_logs
+from trading_agent.lessons import LessonStore, review, settle, settle_logs, write_research
 
 
 def _rec(ts: str, type_: str, run_id: str = "live-1", **kw) -> dict:
@@ -66,6 +66,15 @@ def test_settle_logs_joins_a_live_trade_across_a_restart(tmp_path):
     assert t.key == "live-1:s1-t1" and t.pnl == 75.0 and t.resolved == "2026-07-02T09:00:00+00:00"
 
 
+def test_settle_logs_keeps_live_trades_apart_when_a_replayed_candle_reuses_the_trade_id(tmp_path):
+    a, b = tmp_path / "events-live-1.jsonl", tmp_path / "events-live-2.jsonl"
+    a.write_text("\n".join(json.dumps(r) for r in _log("live-1")[:6]) + "\n")
+    later = [{**r, "ts": r["ts"].replace("2026-07-0", "2026-07-1")} for r in _log("live-2")[:6]]  # same signal/trade ids
+    later[-1]["pnl"] = -50.0
+    b.write_text("\n".join(json.dumps(r) for r in later) + "\n")
+    assert [(t.key, t.pnl) for t in settle_logs([a, b])] == [("live-1:s1-t1", 75.0), ("live-2:s1-t1", -21.0)]
+
+
 def _row(key: str, resolved: str, lesson: str = "L", instrument: str = "AUD_USD") -> dict:
     return {"key": key, "resolved": resolved, "instrument": instrument, "direction": "LONG", "setup_id": "x", "r_multiple": 1.0,
             "exit_reason": "TP", "lesson": lesson}
@@ -113,6 +122,14 @@ def test_review_failed_research_write_leaves_trades_unreviewed(tmp_path):
     with pytest.raises(OSError):
         review(settle(_log()), lambda t: {"lesson": "x", "hypothesis": "h"}, store, research_dir=blocked)
     assert store.load() == []
+
+
+def test_write_research_skips_rows_already_written(tmp_path):
+    rows = [{**_row("live-1:s1-t1", "2026-07-02T09:00:00+00:00"), "hypothesis": "Test trail_buffer_pips."}]
+    for _ in range(2):  # e.g. the store write failed after the markdown, so the batch is retried
+        write_research(rows, tmp_path, datetime(2026, 7, 3, tzinfo=UTC))
+    assert (tmp_path / "JOURNAL.md").read_text().count("live-1:s1-t1") == 1
+    assert (tmp_path / "HYPOTHESES.md").read_text().count("trail_buffer_pips") == 1
 
 
 def test_review_limit_takes_most_recent(tmp_path):
