@@ -80,3 +80,18 @@ def test_point_in_time_runs_never_replay_live_verdicts(tmp_path):
     orch = _CountingOrch(v)
     AgentStrategy(_Inner(), orch, pair=None, authority="gate", cache=VerdictCache(path), orchestrator_model="m", point_in_time=True).evaluate({}, NOW)
     assert orch.calls == 1
+
+
+def test_veto_biased_posture_never_replays_default_verdicts(tmp_path):
+    path = tmp_path / "vc.jsonl"
+    _agent(_CountingOrch(Verdict(decision="approve", confidence=0.8, rationale="ok")), VerdictCache(path)).evaluate({}, NOW)
+
+    veto = _CountingOrch(Verdict(decision="veto", confidence=0.7, rationale="biased"))
+    out = AgentStrategy(_Inner(), veto, pair=None, authority="gate", cache=VerdictCache(path), orchestrator_model="m", veto_default=True).evaluate({}, NOW)
+    assert veto.calls == 1  # different posture -> different key -> fresh call
+    assert out.signal is None
+
+    default = _CountingOrch(Verdict(decision="veto", confidence=0.1, rationale="unused"))
+    out = _agent(default, VerdictCache(path)).evaluate({}, NOW)
+    assert default.calls == 0  # default-approve verdict untouched by the veto-biased run
+    assert out.signal is not None
