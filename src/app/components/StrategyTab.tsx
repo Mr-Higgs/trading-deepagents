@@ -1,32 +1,71 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Check, Lock, Layers } from "lucide-react";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useServerConfig, type StrategyConfig } from "@/app/hooks/useServerConfig";
-import { getAgentPrefs, setAgentPrefs, type AgentPrefs, type Authority, type GateMode } from "@/lib/runPrefs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  useServerConfig,
+  type StrategyConfig,
+} from "@/app/hooks/useServerConfig";
+import {
+  getAgentPrefs,
+  setAgentPrefs,
+  type AgentPrefs,
+  type Authority,
+  type GateMode,
+} from "@/lib/runPrefs";
+import { LoadFailed } from "@/app/components/LoadFailed";
+import { Term } from "@/app/utils/glossary";
 
 // selectable Ichimoku strategies (wired to the engine via strategy.name)
 const ICHIMOKU = [
-  { id: "ichimoku_pullback", name: "Ichimoku Trend-Pullback", desc: "H4 trend → H1 pullback → M15 candlestick trigger (v1.2: +Chikou +momentum)" },
-  { id: "ichimoku_breakout", name: "Ichimoku Cloud Breakout", desc: "Setup #2: Tenkan>Kijun + above cloud + Chikou → close breaks the cloud" },
-  { id: "ichimoku_confluence", name: "Confluence", desc: "Top-down weighted multi-timeframe vote → pullback/breakout trigger" },
-];
-// techniques from docs/trading-system/ with no engine strategy behind them yet
-const PLANNED = [
-  { id: "support_resistance", name: "Support & Resistance", desc: "Key levels, breaks & retests" },
-  { id: "price_action", name: "Price Action", desc: "Bare-chart structure" },
+  {
+    id: "ichimoku_pullback",
+    name: "Ichimoku Trend-Pullback",
+    desc: "H4 trend → H1 pullback → M15 candlestick trigger",
+  },
+  {
+    id: "ichimoku_breakout",
+    name: "Ichimoku Cloud Breakout",
+    desc: "Setup #2: Tenkan>Kijun + above cloud + Chikou → close breaks the cloud",
+  },
+  {
+    id: "ichimoku_confluence",
+    name: "Confluence",
+    desc: "Top-down weighted multi-timeframe vote → pullback/breakout trigger",
+  },
 ];
 const PATTERNS = ["engulfing", "pin_bar", "hammer", "shooting_star", "doji"];
 
 type Form = Pick<
   StrategyConfig,
-  "version" | "name" | "style" | "rr" | "stop_rule" | "stop_buffer_pips" | "h1_pullback_band" | "min_trend_distance_pips" | "tenkan" | "kijun" | "senkou_b" | "displacement" | "m15_trigger" | "require_tk_momentum" | "require_chikou" | "breakout_ref"
+  | "version"
+  | "name"
+  | "style"
+  | "rr"
+  | "stop_rule"
+  | "stop_buffer_pips"
+  | "h1_pullback_band"
+  | "min_trend_distance_pips"
+  | "tenkan"
+  | "kijun"
+  | "senkou_b"
+  | "displacement"
+  | "m15_trigger"
+  | "require_tk_momentum"
+  | "require_chikou"
+  | "breakout_ref"
 >;
 
 // trading styles → triple-screen stack (mirrors config.py STYLES; shown as a hint next to the picker)
@@ -58,11 +97,35 @@ function toForm(s: StrategyConfig): Form {
   };
 }
 
-function Num({ id, label, value, onChange, step }: { id: string; label: string; value: number | string; onChange: (v: string) => void; step?: string }) {
+function Num({
+  id,
+  label,
+  value,
+  onChange,
+  step,
+}: {
+  id: string;
+  label: ReactNode;
+  value: number | string;
+  onChange: (v: string) => void;
+  step?: string;
+}) {
   return (
     <div className="grid gap-1.5">
-      <Label htmlFor={id} className="text-xs">{label}</Label>
-      <Input id={id} type="number" step={step} value={String(value)} onChange={(e) => onChange(e.target.value)} className="h-8" />
+      <Label
+        htmlFor={id}
+        className="text-xs"
+      >
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        step={step}
+        value={String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8"
+      />
     </div>
   );
 }
@@ -72,26 +135,39 @@ export function StrategyTab() {
   const [form, setForm] = useState<Form | null>(null);
   const [prefs, setPrefs] = useState<AgentPrefs>(getAgentPrefs);
   const [saving, setSaving] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    void load().then((res) => res.strategy && setForm(toForm(res.strategy)));
-    setPrefs(getAgentPrefs());
+  const fetchForm = useCallback(() => {
+    setLoadErr(null);
+    load().then(
+      (res) => res.strategy && setForm(toForm(res.strategy)),
+      (e) => setLoadErr(e instanceof Error ? e.message : String(e))
+    );
   }, [load]);
+  useEffect(() => {
+    fetchForm();
+    setPrefs(getAgentPrefs());
+  }, [fetchForm]);
 
   const mode = prefs.gateMode;
   const patchPrefs = (p: Partial<AgentPrefs>) => {
     setAgentPrefs(p);
     setPrefs((cur) => ({ ...cur, ...p }));
+    toast.success("Saved. Applies to the next run.", { id: "run-prefs" }); // these save instantly (browser-local), unlike the parameters below
   };
 
-  const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => (f ? { ...f, [k]: v } : f));
-  const num = (k: keyof Form) => (v: string) => set(k, Number(v) as Form[typeof k]);
+  const set = <K extends keyof Form>(k: K, v: Form[K]) =>
+    setForm((f) => (f ? { ...f, [k]: v } : f));
+  const num = (k: keyof Form) => (v: string) =>
+    set(k, Number(v) as Form[typeof k]);
 
   const togglePattern = (p: string) =>
     setForm((f) => {
       if (!f) return f;
       const has = f.m15_trigger.includes(p);
-      const next = has ? f.m15_trigger.filter((x) => x !== p) : [...f.m15_trigger, p];
+      const next = has
+        ? f.m15_trigger.filter((x) => x !== p)
+        : [...f.m15_trigger, p];
       return { ...f, m15_trigger: next.length ? next : f.m15_trigger }; // keep at least one
     });
 
@@ -102,7 +178,10 @@ export function StrategyTab() {
     setSaving(true);
     try {
       const res = await save({ strategy: form });
-      if (res.ok) toast.success(`Strategy saved — ${res.strategy?.name} ${res.strategy?.version}`);
+      if (res.ok)
+        toast.success(
+          `Strategy saved — ${res.strategy?.name} ${res.strategy?.version}`
+        );
       else toast.error((res.errors ?? ["Save failed"]).join("; "));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
@@ -112,13 +191,25 @@ export function StrategyTab() {
   };
 
   const isBreakout = form?.name === "ichimoku_breakout";
-  const paramLabel = form?.name === "ichimoku_confluence" ? "Confluence" : isBreakout ? "Cloud Breakout" : "Trend-Pullback";
+  const paramLabel =
+    form?.name === "ichimoku_confluence"
+      ? "Confluence"
+      : isBreakout
+      ? "Cloud Breakout"
+      : "Trend-Pullback";
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
+    <div className="flex flex-col gap-4">
       {/* selectable Ichimoku strategies */}
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ichimoku strategy</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Ichimoku strategy
+        </div>
+        <p className="-mt-1 mb-2 text-xs text-muted-foreground">
+          Pick a strategy and tune it below, then press{" "}
+          <span className="font-medium text-foreground">Save strategy</span>.
+          Changes apply from the next run.
+        </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {ICHIMOKU.map((t) => {
             const active = form?.name === t.id;
@@ -126,10 +217,16 @@ export function StrategyTab() {
               <button
                 key={t.id}
                 onClick={() => set("name", t.id)}
-                className={`rounded-lg border p-3 text-left transition ${active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:border-primary/40"}`}
+                className={`rounded-lg border p-3 text-left transition ${
+                  active
+                    ? "bg-primary/5 border-primary ring-1 ring-primary"
+                    : "hover:border-primary/40 border-border bg-card"
+                }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-foreground">{t.name}</span>
+                  <span className="text-sm font-medium text-foreground">
+                    {t.name}
+                  </span>
                   {active && <Check className="h-4 w-4 text-primary" />}
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{t.desc}</p>
@@ -141,7 +238,9 @@ export function StrategyTab() {
 
       {/* trading style → triple-screen timeframe stack (Elder's three screens) */}
       <div>
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Trading style — triple screen</div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Trading style — triple screen
+        </div>
         <div className="grid gap-2 sm:grid-cols-4">
           {STYLES.map((t) => {
             const active = form?.style === t.id;
@@ -149,25 +248,43 @@ export function StrategyTab() {
               <button
                 key={t.id}
                 onClick={() => set("style", t.id)}
-                className={`rounded-lg border p-3 text-left transition ${active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:border-primary/40"}`}
+                className={`rounded-lg border p-3 text-left transition ${
+                  active
+                    ? "bg-primary/5 border-primary ring-1 ring-primary"
+                    : "hover:border-primary/40 border-border bg-card"
+                }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-foreground">{t.name}</span>
+                  <span className="text-sm font-medium text-foreground">
+                    {t.name}
+                  </span>
                   {active && <Check className="h-4 w-4 text-primary" />}
                 </div>
-                <p className="mt-1 font-mono text-xs text-muted-foreground">{t.stack}</p>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  {t.stack}
+                </p>
               </button>
             );
           })}
         </div>
-        <p className="mt-1.5 text-xs text-muted-foreground">trend → bias → entry. The entry timeframe is the decision clock. Save, then start a run to apply.</p>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          trend → bias → entry. The entry timeframe is the decision clock. Save,
+          then start a run to apply.
+        </p>
       </div>
 
       {/* config */}
       <div className="rounded-lg border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{paramLabel} — parameters</span>
-          {strategy && <span className="font-mono text-xs text-muted-foreground">{strategy.instrument} · {strategy.trend_tf}/{strategy.bias_tf}/{strategy.entry_tf}</span>}
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {paramLabel} — parameters
+          </span>
+          {strategy && (
+            <span className="font-mono text-xs text-muted-foreground">
+              {strategy.instrument} · {strategy.trend_tf}/{strategy.bias_tf}/
+              {strategy.entry_tf}
+            </span>
+          )}
         </div>
 
         {form ? (
@@ -177,11 +294,21 @@ export function StrategyTab() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <Label className="text-xs">LLM decision layer</Label>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">Applies to backtest and live/demo runs.</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Applies to backtest and live/demo runs.
+                  </p>
                 </div>
                 <div className="inline-flex rounded-md border border-border p-0.5">
                   {(["deterministic", "agent"] as GateMode[]).map((m) => (
-                    <button key={m} onClick={() => chooseMode(m)} className={`rounded px-3 py-1 text-xs font-medium ${mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                    <button
+                      key={m}
+                      onClick={() => chooseMode(m)}
+                      className={`rounded px-3 py-1 text-xs font-medium ${
+                        mode === m
+                          ? "text-primary-foreground bg-primary"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
                       {m === "agent" ? "LLM" : "deterministic"}
                     </button>
                   ))}
@@ -195,7 +322,15 @@ export function StrategyTab() {
                     <Label className="text-xs">Authority</Label>
                     <div className="mt-1 inline-flex rounded-md border border-border p-0.5">
                       {(["gate", "signal"] as Authority[]).map((a) => (
-                        <button key={a} onClick={() => patchPrefs({ authority: a })} className={`rounded px-3 py-1 text-xs font-medium ${prefs.authority === a ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                        <button
+                          key={a}
+                          onClick={() => patchPrefs({ authority: a })}
+                          className={`rounded px-3 py-1 text-xs font-medium ${
+                            prefs.authority === a
+                              ? "text-primary-foreground bg-primary"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
                           {a === "signal" ? "Full signal" : "Gate (veto only)"}
                         </button>
                       ))}
@@ -211,13 +346,35 @@ export function StrategyTab() {
                   <div>
                     <Label className="text-xs">Analyst sub-agents</Label>
                     <div className="mt-1 grid gap-2 sm:grid-cols-3">
-                      {([["technical", "Technical", "Ichimoku context"], ["fundamental", "Fundamental", "Economic calendar"], ["sentiment", "Sentiment", "CFTC COT positioning"]] as const).map(([key, label, desc]) => (
-                        <div key={key} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                      {(
+                        [
+                          ["technical", "Technical", "Ichimoku context"],
+                          ["fundamental", "Fundamental", "Economic calendar"],
+                          ["sentiment", "Sentiment", "CFTC COT positioning"],
+                        ] as const
+                      ).map(([key, label, desc]) => (
+                        <div
+                          key={key}
+                          className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+                        >
                           <div>
-                            <Label htmlFor={`an-${key}`} className="text-xs">{label}</Label>
-                            <p className="text-[11px] text-muted-foreground">{desc}</p>
+                            <Label
+                              htmlFor={`an-${key}`}
+                              className="text-xs"
+                            >
+                              {label}
+                            </Label>
+                            <p className="text-[11px] text-muted-foreground">
+                              {desc}
+                            </p>
                           </div>
-                          <Switch id={`an-${key}`} checked={prefs[key]} onCheckedChange={(v) => patchPrefs({ [key]: v } as Partial<AgentPrefs>)} />
+                          <Switch
+                            id={`an-${key}`}
+                            checked={prefs[key]}
+                            onCheckedChange={(v) =>
+                              patchPrefs({ [key]: v } as Partial<AgentPrefs>)
+                            }
+                          />
                         </div>
                       ))}
                     </div>
@@ -227,33 +384,71 @@ export function StrategyTab() {
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
                       <div>
-                        <Label htmlFor="vc-cache" className="text-xs">Cache verdicts</Label>
-                        <p className="text-[11px] text-muted-foreground">Backtest re-runs replay cached decisions (free & deterministic)</p>
+                        <Label
+                          htmlFor="vc-cache"
+                          className="text-xs"
+                        >
+                          Cache verdicts
+                        </Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Backtest re-runs replay cached decisions (free &
+                          deterministic)
+                        </p>
                       </div>
-                      <Switch id="vc-cache" checked={prefs.cache} onCheckedChange={(v) => patchPrefs({ cache: v })} />
+                      <Switch
+                        id="vc-cache"
+                        checked={prefs.cache}
+                        onCheckedChange={(v) => patchPrefs({ cache: v })}
+                      />
                     </div>
                     <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
                       <div>
-                        <Label htmlFor="vc-refresh" className="text-xs">Refresh cache</Label>
-                        <p className="text-[11px] text-muted-foreground">Ignore cached verdicts, call the LLM fresh (backtest)</p>
+                        <Label
+                          htmlFor="vc-refresh"
+                          className="text-xs"
+                        >
+                          Refresh cache
+                        </Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Ignore cached verdicts, call the LLM fresh (backtest)
+                        </p>
                       </div>
-                      <Switch id="vc-refresh" checked={prefs.refresh} onCheckedChange={(v) => patchPrefs({ refresh: v })} disabled={!prefs.cache} />
+                      <Switch
+                        id="vc-refresh"
+                        checked={prefs.refresh}
+                        onCheckedChange={(v) => patchPrefs({ refresh: v })}
+                        disabled={!prefs.cache}
+                      />
                     </div>
                   </div>
                 </div>
               ) : (
-                <p className="mt-2 text-[11px] text-muted-foreground">Pure rule engine — no LLM in the loop.</p>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Pure rule engine — no LLM in the loop.
+                </p>
               )}
             </div>
 
             {/* candlestick trigger patterns */}
             <div>
-              <Label className="text-xs">{isBreakout ? "Candlestick patterns (unused by breakout)" : "M15 trigger patterns"}</Label>
+              <Label className="text-xs">
+                {isBreakout
+                  ? "Candlestick patterns (unused by breakout)"
+                  : "M15 trigger patterns"}
+              </Label>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {PATTERNS.map((p) => {
                   const on = form.m15_trigger.includes(p);
                   return (
-                    <button key={p} onClick={() => togglePattern(p)} className={`rounded-md border px-2.5 py-1 text-xs font-medium capitalize ${on ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+                    <button
+                      key={p}
+                      onClick={() => togglePattern(p)}
+                      className={`rounded-md border px-2.5 py-1 text-xs font-medium capitalize ${
+                        on
+                          ? "bg-primary/10 border-primary text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
                       {p.replace("_", " ")}
                     </button>
                   );
@@ -265,26 +460,67 @@ export function StrategyTab() {
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
                 <div>
-                  <Label htmlFor="tk" className="text-xs">Tenkan/Kijun momentum</Label>
-                  <p className="text-[11px] text-muted-foreground">Require T/K to agree with direction</p>
+                  <Label
+                    htmlFor="tk"
+                    className="text-xs"
+                  >
+                    Tenkan/Kijun momentum
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Require T/K to agree with direction
+                  </p>
                 </div>
-                <Switch id="tk" checked={form.require_tk_momentum} onCheckedChange={(v) => set("require_tk_momentum", v)} />
+                <Switch
+                  id="tk"
+                  checked={form.require_tk_momentum}
+                  onCheckedChange={(v) => set("require_tk_momentum", v)}
+                />
               </div>
               <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
                 <div>
-                  <Label htmlFor="ch" className="text-xs">Chikou confirmation</Label>
-                  <p className="text-[11px] text-muted-foreground">Close vs price 26 bars ago</p>
+                  <Label
+                    htmlFor="ch"
+                    className="text-xs"
+                  >
+                    <Term k="chikou">Chikou</Term> confirmation
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Close vs price 26 bars ago
+                  </p>
                 </div>
-                <Switch id="ch" checked={form.require_chikou} onCheckedChange={(v) => set("require_chikou", v)} />
+                <Switch
+                  id="ch"
+                  checked={form.require_chikou}
+                  onCheckedChange={(v) => set("require_chikou", v)}
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Num id="rr" label="Risk:reward" value={form.rr} onChange={num("rr")} step="0.1" />
+              <Num
+                id="rr"
+                label={<Term k="rr">Risk:reward</Term>}
+                value={form.rr}
+                onChange={num("rr")}
+                step="0.1"
+              />
               <div className="grid gap-1.5">
-                <Label htmlFor="stop_rule" className="text-xs">Stop rule</Label>
-                <Select value={form.stop_rule} onValueChange={(v) => set("stop_rule", v)}>
-                  <SelectTrigger id="stop_rule" className="h-8"><SelectValue /></SelectTrigger>
+                <Label
+                  htmlFor="stop_rule"
+                  className="text-xs"
+                >
+                  Stop rule
+                </Label>
+                <Select
+                  value={form.stop_rule}
+                  onValueChange={(v) => set("stop_rule", v)}
+                >
+                  <SelectTrigger
+                    id="stop_rule"
+                    className="h-8"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="kijun">Kijun</SelectItem>
                     <SelectItem value="cloud">Cloud</SelectItem>
@@ -293,9 +529,22 @@ export function StrategyTab() {
               </div>
               {isBreakout && (
                 <div className="grid gap-1.5">
-                  <Label htmlFor="breakout_ref" className="text-xs">Breakout ref</Label>
-                  <Select value={form.breakout_ref} onValueChange={(v) => set("breakout_ref", v)}>
-                    <SelectTrigger id="breakout_ref" className="h-8"><SelectValue /></SelectTrigger>
+                  <Label
+                    htmlFor="breakout_ref"
+                    className="text-xs"
+                  >
+                    Breakout ref
+                  </Label>
+                  <Select
+                    value={form.breakout_ref}
+                    onValueChange={(v) => set("breakout_ref", v)}
+                  >
+                    <SelectTrigger
+                      id="breakout_ref"
+                      className="h-8"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="cloud">Cloud</SelectItem>
                       <SelectItem value="base">Base</SelectItem>
@@ -303,44 +552,92 @@ export function StrategyTab() {
                   </Select>
                 </div>
               )}
-              <Num id="stop_buffer_pips" label="Stop buffer (pips)" value={form.stop_buffer_pips} onChange={num("stop_buffer_pips")} step="0.5" />
-              <Num id="min_trend_distance_pips" label="Min trend dist (pips)" value={form.min_trend_distance_pips} onChange={num("min_trend_distance_pips")} step="1" />
-              <Num id="h1_pullback_band" label="H1 pullback band" value={form.h1_pullback_band} onChange={num("h1_pullback_band")} step="0.0001" />
-              <Num id="tenkan" label="Tenkan" value={form.tenkan} onChange={num("tenkan")} step="1" />
-              <Num id="kijun" label="Kijun" value={form.kijun} onChange={num("kijun")} step="1" />
-              <Num id="senkou_b" label="Senkou B" value={form.senkou_b} onChange={num("senkou_b")} step="1" />
-              <Num id="displacement" label="Displacement" value={form.displacement} onChange={num("displacement")} step="1" />
+              <Num
+                id="stop_buffer_pips"
+                label={<Term k="stop_buffer">Stop buffer (pips)</Term>}
+                value={form.stop_buffer_pips}
+                onChange={num("stop_buffer_pips")}
+                step="0.5"
+              />
+              <Num
+                id="min_trend_distance_pips"
+                label={
+                  <Term k="min_trend_distance">Min trend dist (pips)</Term>
+                }
+                value={form.min_trend_distance_pips}
+                onChange={num("min_trend_distance_pips")}
+                step="1"
+              />
+              <Num
+                id="h1_pullback_band"
+                label={<Term k="pullback_band">H1 pullback band</Term>}
+                value={form.h1_pullback_band}
+                onChange={num("h1_pullback_band")}
+                step="0.0001"
+              />
+              <Num
+                id="tenkan"
+                label={<Term k="tenkan">Tenkan</Term>}
+                value={form.tenkan}
+                onChange={num("tenkan")}
+                step="1"
+              />
+              <Num
+                id="kijun"
+                label={<Term k="kijun">Kijun</Term>}
+                value={form.kijun}
+                onChange={num("kijun")}
+                step="1"
+              />
+              <Num
+                id="senkou_b"
+                label={<Term k="senkou_b">Senkou B</Term>}
+                value={form.senkou_b}
+                onChange={num("senkou_b")}
+                step="1"
+              />
+              <Num
+                id="displacement"
+                label={<Term k="displacement">Displacement</Term>}
+                value={form.displacement}
+                onChange={num("displacement")}
+                step="1"
+              />
               <div className="grid gap-1.5">
-                <Label htmlFor="version" className="text-xs">Version tag</Label>
-                <Input id="version" value={form.version} onChange={(e) => set("version", e.target.value)} className="h-8 font-mono" />
+                <Label
+                  htmlFor="version"
+                  className="text-xs"
+                >
+                  Version tag
+                </Label>
+                <Input
+                  id="version"
+                  value={form.version}
+                  onChange={(e) => set("version", e.target.value)}
+                  className="h-8 font-mono"
+                />
               </div>
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={handleSave} disabled={saving}>{saving ? "Saving…" : "Save strategy"}</Button>
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? "Saving…" : "Save strategy"}
+              </Button>
             </div>
           </div>
+        ) : loadErr ? (
+          <LoadFailed
+            error={loadErr}
+            onRetry={fetchForm}
+          />
         ) : (
-          <div className="p-8 text-center text-sm text-muted-foreground">Loading strategy config…</div>
+          <div className="p-8 text-center text-sm text-muted-foreground">
+            Loading strategy settings…
+          </div>
         )}
-      </div>
-
-      {/* techniques not yet wired */}
-      <div>
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <Layers className="h-3.5 w-3.5" /> Top-Down / Triple Screen (H4/H1/M15) &amp; Confluence are active · other techniques (planned)
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {PLANNED.map((t) => (
-            <div key={t.id} className="rounded-lg border border-border bg-card p-3 opacity-70">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-foreground">{t.name}</span>
-                <Lock className="h-3 w-3 text-muted-foreground" />
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">{t.desc}</p>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
