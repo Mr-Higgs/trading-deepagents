@@ -106,6 +106,15 @@ def test_review_is_idempotent_records_failures_and_writes_research(tmp_path):
     assert calls == ["live-2:s1-t1"]  # the reviewed trade is not paid for twice; the failed one is retried
 
 
+def test_review_failed_research_write_leaves_trades_unreviewed(tmp_path):
+    store = LessonStore(tmp_path / "l.jsonl")
+    blocked = tmp_path / "research"
+    blocked.write_text("not a dir")
+    with pytest.raises(OSError):
+        review(settle(_log()), lambda t: {"lesson": "x", "hypothesis": "h"}, store, research_dir=blocked)
+    assert store.load() == []
+
+
 def test_review_limit_takes_most_recent(tmp_path):
     trades = settle(_log("live-1")) + settle(_log("live-2"))
     res = review(trades, lambda t: {"lesson": "x"}, LessonStore(tmp_path / "l.jsonl"), limit=1, research_dir=None)

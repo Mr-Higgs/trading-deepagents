@@ -253,7 +253,8 @@ def review(
     research_dir: Path | None = RESEARCH_DIR,
     now: datetime | None = None,
 ) -> Review:
-    """Reflect on the `limit` most recently closed trades not yet in `store`; record each as soon as it's done."""
+    """Reflect on the `limit` most recently closed trades not yet in `store`. The research markdown is written
+    before the store, so a failed write leaves the batch unreviewed (retried next pass) rather than losing it."""
     seen = store.keys()
     todo = [t for t in trades if t.key not in seen]
     batch = todo[-limit:] if limit > 0 else todo
@@ -268,11 +269,11 @@ def review(
             result.failed.append((t.key, str(e)))
             continue
         hyp = (out.get("hypothesis") or "").strip() or None
-        row = {**asdict(t), "lesson": lesson, "hypothesis": hyp}
-        store.add(row)
-        result.reviewed.append(row)
+        result.reviewed.append({**asdict(t), "lesson": lesson, "hypothesis": hyp})
     if research_dir is not None and result.reviewed:
         write_research(result.reviewed, research_dir, now or datetime.now(UTC))
+    for row in result.reviewed:
+        store.add(row)
     return result
 
 
