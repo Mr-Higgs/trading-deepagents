@@ -10,16 +10,18 @@ Served via langgraph.json as `trade_loop`; `langgraph dev` loads `.env` so OANDA
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from dataclasses import replace
-
 from trading_agent import engine
-from trading_agent.config import load_config
+from trading_agent.backtest_setup import auto_news_windows, with_news_windows
+from trading_agent.config import AppConfig, load_config
+from trading_agent.news import RefreshingNewsWindows
 from trading_agent.risk import RiskEngine
 from trading_agent.run import _make_backend, _make_strategy, _simulated_backend, _utc_day
 from trading_agent.stream_log import StreamingEventLog
@@ -61,6 +63,33 @@ def _apply_agent_overrides(cfg, overrides: dict | None):
     return replace(cfg, agents=replace(cfg.agents, **changes)) if changes else cfg
 
 
+def _news_aware(cfg: AppConfig, mode: str, *, merge_ff: Callable[[Path], int] | None = None, root: Path | None = None, now: Callable[[], datetime] | None = None) -> AppConfig:
+    """Append the auto news-blackout windows so dashboard runs gate like the CLI (`run.py`).
+
+    Live runs get `RefreshingNewsWindows`: the feed refresh rides the live poll cadence (see
+    `LiveOandaSource.on_poll`) after an initial forced refresh; a failed pull only warns —
+    a flaky feed must never block the loop.
+    """
+    na = cfg.risk.news_auto
+    if not na.enabled:
+        return cfg
+    if mode != "live":
+        return with_news_windows(cfg, root=root)
+    from trading_agent import calendar_build  # lazy: httpx
+
+    base = root or _ROOT
+    path = base / na.calendar
+    windows = RefreshingNewsWindows(
+        tuple(cfg.risk.news_windows),  # original manual windows; auto_news_windows must see this cfg, not the replaced one
+        lambda: auto_news_windows(cfg, root=root),
+        lambda: (merge_ff or calendar_build.merge_ff_week)(path),
+        refresh_hours=na.refresh_hours,
+        **({"now": now} if now else {}),
+    )
+    windows.refresh(force=True)
+    return replace(cfg, risk=replace(cfg.risk, news_windows=windows))
+
+
 def run_loop(state: LoopState) -> LoopState:
     cfg = _apply_agent_overrides(load_config(_CONFIG_DIR), state.get("agents"))
     refresh = bool((state.get("agents") or {}).get("refresh"))
@@ -78,6 +107,8 @@ def run_loop(state: LoopState) -> LoopState:
         rl.loop(int(state.get("iterations", 5)), state.get("model") or "anthropic:claude-sonnet-5", config_dir=str(_CONFIG_DIR), commit=False)
         return {"status": "done"}
 
+    cfg = _news_aware(cfg, mode)
+
     from trading_agent.marketdata.oanda_client import OandaClient  # lazy: network stack
 
     client = OandaClient.from_env()  # routed through the practice tripwire (oanda_env.py)
@@ -86,7 +117,7 @@ def run_loop(state: LoopState) -> LoopState:
         from trading_agent.marketdata.live import LiveOandaSource
 
         exec_mode = state.get("execution") or cfg.risk.execution.backend
-        source = LiveOandaSource(client, cfg.pair.symbol, tfs, poll_seconds=int(state.get("poll", 60)))
+        source = LiveOandaSource(client, cfg.pair.symbol, tfs, poll_seconds=int(state.get("poll", 60)), on_poll=getattr(cfg.risk.news_windows, "refresh", None))
         strategy = _make_strategy(cfg, state.get("strategy", "config"), use_cache=False)  # live decisions are always fresh
         backend = _make_backend(cfg, override=exec_mode)  # "oanda" => real 101- demo orders (tripwire-guarded)
         run_id = f"live-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"

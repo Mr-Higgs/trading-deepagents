@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import pytest
 
 from trading_agent.marketdata.base import FRAME_COLUMNS
 from trading_agent.marketdata.live import LiveOandaSource
@@ -34,3 +35,27 @@ def test_emits_each_close_once():
 
     # a poll with nothing new emits nothing
     assert src._emit_new(_m15(4)) == []
+
+
+def test_stream_calls_on_poll_each_iteration(monkeypatch):
+    class _Stop(Exception):
+        pass
+
+    class Client:
+        def recent_candles(self, instrument, gran, lookback):
+            return _m15(4)
+
+    polls = []
+    src = LiveOandaSource(client=Client(), instrument="AUD_USD", timeframes={"trend": "H4", "bias": "H1", "entry": "M15"}, on_poll=lambda: polls.append(1))
+    sleeps = {"n": 0}
+
+    def fake_sleep(_):
+        sleeps["n"] += 1
+        if sleeps["n"] >= 2:
+            raise _Stop
+
+    monkeypatch.setattr("trading_agent.marketdata.live.time.sleep", fake_sleep)
+    with pytest.raises(_Stop):
+        for _ in src.stream():
+            pass
+    assert len(polls) == 2

@@ -8,7 +8,9 @@ calendar). Blackouts cover high-impact events for either currency of the traded 
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import warnings
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -81,3 +83,48 @@ def build_news_windows(
         else:
             windows.append(NewsWindow(start=start, end=end, reason=reason))
     return tuple(windows)
+
+
+class RefreshingNewsWindows:
+    """Live-mode blackout windows that re-pull this week's Forex Factory feed on a cadence.
+
+    Iterating yields the manual windows plus the auto windows rebuilt at the last refresh, so the engine's
+    `in_news_window(now, cfg.risk.news_windows)` needs no change. `refresh()` is cheap to call every poll:
+    it only does work once `refresh_hours` have elapsed (or when forced). A failed pull warns and keeps the
+    previous windows — a flaky feed must never block the loop.
+    """
+
+    def __init__(
+        self,
+        manual: tuple[NewsWindow, ...],
+        build: Callable[[], tuple[NewsWindow, ...]],
+        merge: Callable[[], object],
+        *,
+        refresh_hours: float,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        self._manual = manual
+        self._build = build  # rebuild auto windows from the stored CSV
+        self._merge = merge  # fold this week's FF feed into the stored CSV
+        self._refresh_hours = refresh_hours
+        self._now = now
+        self._auto: tuple[NewsWindow, ...] = ()
+        self.last_refresh: datetime | None = None
+
+    def refresh(self, *, force: bool = False) -> bool:
+        """Re-pull the feed and rebuild windows if due (or forced); returns whether a refresh ran."""
+        if not force and self.last_refresh is not None and self._now() - self.last_refresh < timedelta(hours=self._refresh_hours):
+            return False
+        try:
+            self._merge()
+        except Exception as exc:  # noqa: BLE001 - a flaky feed must never block the trading loop
+            warnings.warn(f"Forex Factory refresh failed, using stored calendar only: {exc}", stacklevel=2)
+        self._auto = self._build()  # always rebuild from the stored CSV, even after a failed merge
+        self.last_refresh = self._now()
+        return True
+
+    def __iter__(self) -> Iterator[NewsWindow]:
+        return iter((*self._manual, *self._auto))
+
+    def __len__(self) -> int:
+        return len(self._manual) + len(self._auto)

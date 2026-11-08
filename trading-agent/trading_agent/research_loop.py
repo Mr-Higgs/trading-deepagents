@@ -26,6 +26,7 @@ from pathlib import Path
 
 from trading_agent import engine, store
 from trading_agent.analytics import analyze, to_markdown
+from trading_agent.backtest_setup import with_news_windows
 from trading_agent.config import load_config
 from trading_agent.eventlog import EventLog
 from trading_agent.marketdata.historical import HistoricalOandaSource
@@ -117,7 +118,7 @@ def run_backtest(overrides: dict, start: str, end: str, config_dir: str = _DEFAU
     # keeps bytes flowing on the custom stream between the coarse RESEARCH/ITER events. No-op off a graph run.
     _emit({"type": "BACKTEST", "run_id": _RUN_ID, "range": [start, end]})
     logdir = logdir or _DEFAULT_LOGDIR  # resolved at call time so a graph run can redirect it off langgraph dev's watched tree
-    cfg = _apply(load_config(config_dir), overrides)
+    cfg = with_news_windows(_apply(load_config(config_dir), overrides), root=_ROOT)  # root=_ROOT: config_dir may be a sandboxed copy whose parent has no data/
     source = _source(cfg, start, end, cache_dir)
     Path(logdir).mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(suffix=".jsonl", dir=logdir)

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from trading_agent.config import AppConfig
+from trading_agent.config import AppConfig, NewsWindow
 from trading_agent.costs import CostModel, SpreadModel, WideningProfile
 from trading_agent.execution.simulated import SimulatedBackend
 from trading_agent.financing import load_financing_yaml
@@ -54,17 +54,23 @@ def build_simulated_backend(cfg: AppConfig, fx: FxConverter | None = None) -> Si
     )
 
 
-def with_news_windows(cfg: AppConfig, *, root: Path | None = None) -> AppConfig:
-    """Return `cfg` with auto-built blackout windows appended (no-op unless `news_auto.enabled`)."""
+def auto_news_windows(cfg: AppConfig, *, root: Path | None = None) -> tuple[NewsWindow, ...]:
+    """Blackout windows built from the stored calendar (`news_auto`); `()` when disabled."""
     na = cfg.risk.news_auto
     if not na.enabled:
-        return cfg
+        return ()
     base = root or cfg.config_dir.parent
     if not (base / na.calendar).exists():
         warnings.warn(f"news_auto is enabled but {base / na.calendar} is missing: no news blackouts will apply", stacklevel=2)
     cal = load_calendar(base / na.calendar)
-    auto = build_news_windows(cal, cfg.pair.symbol, minutes_before=na.minutes_before, minutes_after=na.minutes_after, impacts=na.impacts, impact_minutes=na.impact_minutes)
-    return replace(cfg, risk=replace(cfg.risk, news_windows=(*cfg.risk.news_windows, *auto)))
+    return build_news_windows(cal, cfg.pair.symbol, minutes_before=na.minutes_before, minutes_after=na.minutes_after, impacts=na.impacts, impact_minutes=na.impact_minutes)
+
+
+def with_news_windows(cfg: AppConfig, *, root: Path | None = None) -> AppConfig:
+    """Return `cfg` with auto-built blackout windows appended (no-op unless `news_auto.enabled`)."""
+    if not cfg.risk.news_auto.enabled:
+        return cfg
+    return replace(cfg, risk=replace(cfg.risk, news_windows=(*cfg.risk.news_windows, *auto_news_windows(cfg, root=root))))
 
 
 def load_fx_converter(cfg: AppConfig, client: Any, start: datetime, end: datetime, *, cache_dir: str | None = None) -> FxConverter | None:

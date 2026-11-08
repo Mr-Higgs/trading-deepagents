@@ -43,10 +43,16 @@ class AgentStrategy:
         orchestrator_model: str = "",
         *,
         point_in_time: bool = False,
+        veto_default: bool = False,
     ) -> None:
-        """`point_in_time=True` (backtests) pins every analyst tool call to the bar timestamp."""
+        """`point_in_time=True` (backtests) pins every analyst tool call to the bar timestamp.
+
+        `veto_default` only keys the verdict cache: the posture lives in the orchestrator's system prompt, so a
+        veto-biased gate must never replay (or overwrite) default-approve verdicts for the same trade prompt.
+        """
         self.inner = inner
         self.point_in_time = point_in_time
+        self.veto_default = veto_default
         self._now: datetime | None = None
         self.orchestrator = orchestrator
         self.pair = pair
@@ -96,6 +102,8 @@ class AgentStrategy:
     def _gate(self, signal: Signal) -> Verdict | None:
         prompt = self._prompt(signal, self.authority)
         version = f"{PROMPT_VERSION}+pit" if self.point_in_time else PROMPT_VERSION  # PIT verdicts never replay live-data ones
+        if self.veto_default:
+            version += "+veto"  # posture-specific key; default-approve keys stay unchanged
         key = key_for(prompt, self.orchestrator_model, version) if self.cache is not None else None
         if key is not None:
             cached = self.cache.get(key)

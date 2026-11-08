@@ -81,7 +81,7 @@ def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool =
     return AgentStrategy(
         inner, build_orchestrator(cfg), cfg.pair,
         authority=cfg.agents.authority, cache=cache, orchestrator_model=cfg.agents.orchestrator_model,
-        point_in_time=point_in_time,
+        point_in_time=point_in_time, veto_default=cfg.agents.veto_default,
     )
 
 

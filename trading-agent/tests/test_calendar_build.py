@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+import httpx
 import pandas as pd
+import pytest
 
 from trading_agent import calendar_build as cb
 from trading_agent.news import build_news_windows
@@ -81,3 +83,33 @@ def test_row_overrides_and_impact_minutes_in_windows():
     ])
     w = build_news_windows(cal, "AUD_USD", impacts=("High", "Medium"), impact_minutes={"Medium": (15, 15)})
     assert [(x.start.strftime("%H:%M"), x.end.strftime("%H:%M")) for x in w] == [("18:30", "20:30"), ("14:45", "15:15")]
+
+
+def test_merge_ff_week_writes_and_counts(tmp_path):
+    out = tmp_path / "cal.csv"
+    pd.DataFrame([{"time": "2026-11-09T00:00:00Z", "currency": "USD", "impact": "High", "title": "Old",
+                   "before_min": None, "after_min": None, "source": "fred:50"}]).to_csv(out, index=False)
+    get = lambda url, params=None: [
+        {"title": "CPI y/y", "country": "AUD", "impact": "High", "date": "2026-11-10T00:30:00+00:00"},
+        {"title": "Low thing", "country": "AUD", "impact": "Low", "date": "2026-11-10T01:00:00+00:00"},
+        {"title": "EUR thing", "country": "EUR", "impact": "High", "date": "2026-11-10T02:00:00+00:00"},
+    ]
+    assert cb.merge_ff_week(out, get=get) == 1
+    df = pd.read_csv(out)
+    assert len(df) == 2
+    new = df[df["title"] == "CPI y/y"].iloc[0]
+    assert new["source"] == "forexfactory"
+    assert cb.merge_ff_week(out, get=get) == 0  # dedupe on re-run
+
+
+def test_rba_rows_tolerates_unpublished_year(monkeypatch):
+    def fake_text(url):
+        if "2027" in url:
+            raise httpx.HTTPStatusError("404", request=httpx.Request("GET", url), response=httpx.Response(404, request=httpx.Request("GET", url)))
+        return "<td>17 February 2026</td>"  # a Tuesday; parse_rba_year drops non-Tuesday dates
+
+    monkeypatch.setattr(cb, "_http_text", fake_text)
+    rows_2026 = cb._rba_rows(2026)
+    assert [r["currency"] for r in rows_2026] == ["AUD"] and rows_2026[0]["source"] == "rba.gov.au"
+    with pytest.warns(UserWarning, match="RBA decisions page for 2027 not published yet"):
+        assert cb._rba_rows(2027) == []
