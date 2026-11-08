@@ -98,25 +98,3 @@ class DevinCliGate:
         trade = inputs["messages"][-1]["content"]
         prompt = f"{self.system}\n\nTRADE:\n{trade}\n\nANALYST DATA:\n{self._analyst_data()}{_OUTPUT_RULE}"
         return {"structured_response": parse_verdict(self.run(self.model, prompt))}
-
-    def as_graph(self):
-        """Wrap the gate as a one-node LangGraph graph so `langgraph dev` can serve it as `trade_gate`."""
-        from langchain_core.messages import AIMessage
-        from langgraph.graph import END, START, MessagesState, StateGraph
-
-        class GateState(MessagesState):
-            structured_response: dict | None
-
-        def decide(state: GateState) -> dict:
-            last = state["messages"][-1]
-            content = last.content if isinstance(last.content, str) else "".join(
-                b.get("text", "") if isinstance(b, dict) else str(b) for b in last.content
-            )
-            verdict = self.invoke({"messages": [{"role": "user", "content": content}]})["structured_response"]
-            return {"structured_response": verdict.model_dump(), "messages": [AIMessage(content=verdict.model_dump_json())]}
-
-        graph = StateGraph(GateState)
-        graph.add_node("devin_gate", decide)
-        graph.add_edge(START, "devin_gate")
-        graph.add_edge("devin_gate", END)
-        return graph.compile(name="devin_gate")
