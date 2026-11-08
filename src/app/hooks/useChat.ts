@@ -5,13 +5,21 @@ import { useStream } from "@langchain/langgraph-sdk/react";
 import type { Assistant } from "@langchain/langgraph-sdk";
 import { useClient } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
-import { reduceEvents, type RunMeta, type TradingEvent } from "@/app/utils/reduceEvents";
+import {
+  reduceEvents,
+  type RunMeta,
+  type TradingEvent,
+} from "@/app/utils/reduceEvents";
 import { reduceResearch, type ResearchEvent } from "@/app/utils/reduceResearch";
 
 // trade_loop's graph state is just the run input + status; the trading data rides the `custom` stream.
 export type StateType = Record<string, unknown>;
 
-export function useChat({ activeAssistant }: { activeAssistant: Assistant | null }) {
+export function useChat({
+  activeAssistant,
+}: {
+  activeAssistant: Assistant | null;
+}) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const client = useClient();
 
@@ -23,14 +31,20 @@ export function useChat({ activeAssistant }: { activeAssistant: Assistant | null
   // Timestamp of the most recent event of ANY type (including dropped SKIP heartbeats), so a healthy live
   // run that's just between signals reads as "watching · last check HH:MM:SS" instead of a frozen feed.
   const [lastCheckAt, setLastCheckAt] = useState<string | null>(null);
+  // SKIPs aren't kept as events, but their reasons are counted so a zero-trade run can say WHY.
+  const [skipCounts, setSkipCounts] = useState<Record<string, number>>({});
   // startRun defers its submit here while a stale URL threadId is being cleared (see startRun + effect).
-  const [pendingRun, setPendingRun] = useState<Record<string, unknown> | null>(null);
+  const [pendingRun, setPendingRun] = useState<Record<string, unknown> | null>(
+    null
+  );
   // Mirrors stream.isLoading so onError (which can't read `stream` while it's being constructed) can tell a
   // mid-run drop from a load-time stale-thread 404 — we only reset the threadId in the latter case.
   const loadingRef = useRef(false);
   // The input of the run we last launched — lets the status bar say BACKTEST / LIVE · SIM / LIVE · PAPER
   // before RUN_META arrives. ponytail: lost on reload (a rejoined run shows its RUN_META only).
-  const [lastInput, setLastInput] = useState<Record<string, unknown> | null>(null);
+  const [lastInput, setLastInput] = useState<Record<string, unknown> | null>(
+    null
+  );
 
   // Only hand useStream a threadId we've verified exists. The dev thread store is wiped on server restart,
   // so a URL threadId can be stale — and the SDK's history fetch for a missing thread rejects a promise it
@@ -63,13 +77,17 @@ export function useChat({ activeAssistant }: { activeAssistant: Assistant | null
     },
     onCustomEvent: (event: unknown) => {
       const e = event as TradingEvent;
-      if (!e || typeof e.type !== "string" || !("run_id" in (e as object))) return;
+      if (!e || typeof e.type !== "string" || !("run_id" in (e as object)))
+        return;
       if (e.type === "RUN_META") {
         setRunMeta(e as unknown as RunMeta); // run header (execution backend/account) — not a feed event
         return;
       }
       if (e.ts) setLastCheckAt(e.ts); // heartbeat: bump on every event, incl. dropped SKIPs
-      if (e.type !== "SKIP") setEvents((prev) => [...prev, e]);
+      if (e.type === "SKIP") {
+        const reason = (e.reason ?? "unknown").split(":")[0]; // "llm_veto:0.90:why…" → "llm_veto"
+        setSkipCounts((c) => ({ ...c, [reason]: (c[reason] ?? 0) + 1 }));
+      } else setEvents((prev) => [...prev, e]);
     },
   });
 
@@ -105,7 +123,10 @@ export function useChat({ activeAssistant }: { activeAssistant: Assistant | null
   const reduced = useMemo(() => reduceEvents(events), [events]);
   // The backtest iteration loop rides the SAME custom stream (trade_loop mode:"research") — fold its
   // RESEARCH_META/ITER_*/RESEARCH_END events into a live iteration list for the Live + Backtest views.
-  const research = useMemo(() => reduceResearch(events as unknown as ResearchEvent[]), [events]);
+  const research = useMemo(
+    () => reduceResearch(events as unknown as ResearchEvent[]),
+    [events]
+  );
 
   // Kick off a trading run on the trade_loop graph, e.g. startRun({ mode: "backtest" }) or { mode: "live" }.
   // A dashboard run is a one-shot execution, not a conversation continuation: never submit onto the
@@ -118,6 +139,7 @@ export function useChat({ activeAssistant }: { activeAssistant: Assistant | null
       setEvents([]);
       setRunMeta(null);
       setLastCheckAt(null);
+      setSkipCounts({});
       if (threadId) setThreadId(null); // clear the current thread; the verify effect nulls streamThreadId
       setPendingRun(input); // submit once we're on a fresh (null) thread — see effect below
     },
@@ -150,6 +172,8 @@ export function useChat({ activeAssistant }: { activeAssistant: Assistant | null
     lastCheckAt,
     startRun,
     lastInput,
+    skipCounts,
+    finished: events.some((e) => e.type === "RUN_END"),
     trades: reduced.trades,
     equityCurve: reduced.equityCurve,
     pnl: reduced.pnl,

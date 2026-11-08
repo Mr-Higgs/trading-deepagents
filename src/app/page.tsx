@@ -130,12 +130,12 @@ function HomePageInner({
                 <Section title="Start a run">
                   <RunLauncher />
                 </Section>
-                <div className="h-[60vh] min-h-[420px] overflow-hidden rounded-lg border border-border">
-                  <ChartTab />
-                </div>
                 <Section title="This run">
                   <TradingDashboard />
                 </Section>
+                <div className="h-[60vh] min-h-[420px] overflow-hidden rounded-lg border border-border">
+                  <ChartTab />
+                </div>
                 <Section title="Account">
                   <AccountTab />
                 </Section>

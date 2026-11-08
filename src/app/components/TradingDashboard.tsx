@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useQueryState } from "nuqs";
 import { AlertTriangle } from "lucide-react";
 import { useChatContext } from "@/providers/ChatProvider";
-import { Term } from "@/app/utils/glossary";
+import { Term, SKIP_REASONS } from "@/app/utils/glossary";
 import type {
   EquityPoint,
   PnlSummary,
@@ -400,8 +401,45 @@ function Panel({
 }
 
 /** This run's results: P/L tiles, equity curve, event feed, trades. Launching + status live elsewhere. */
+// Top reasons the engine passed on bars — the answer to "why didn't it trade?".
+function SkipReasons({
+  counts,
+  limit = 5,
+}: {
+  counts: Record<string, number>;
+  limit?: number;
+}) {
+  const rows = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+  if (!rows.length)
+    return (
+      <p className="text-sm text-muted-foreground">No bars were evaluated.</p>
+    );
+  return (
+    <ul className="space-y-1 text-sm">
+      {rows.map(([code, n]) => (
+        <li
+          key={code}
+          className="flex justify-between gap-4"
+        >
+          <span title={code}>{SKIP_REASONS[code] ?? code}</span>
+          <span className="font-mono tabular-nums text-muted-foreground">
+            {n.toLocaleString("en-US")} bars
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function TradingDashboard() {
+  const [, setTab] = useQueryState("tab");
+  const [, setSection] = useQueryState("section");
   const {
+    skipCounts,
+    finished,
+    runMeta,
     isLoading,
     events,
     trades,
@@ -449,7 +487,34 @@ export function TradingDashboard() {
         </div>
       )}
 
-      {!events.length ? (
+      {finished && pnl.signals === 0 ? (
+        <div className="border-warning/40 rounded-lg border bg-card p-4">
+          <h3 className="text-sm font-semibold">Finished with no trades</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {runMeta?.start && runMeta?.end
+              ? `Between ${runMeta.start} and ${runMeta.end}, `
+              : ""}
+            the strategy didn&apos;t find a single setup that passed all its
+            filters. The most common reasons it passed on a bar:
+          </p>
+          <div className="mt-3 max-w-xl">
+            <SkipReasons counts={skipCounts} />
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Try a longer date range, or turn off some filters in{" "}
+            <button
+              onClick={() => {
+                void setTab("settings");
+                void setSection("strategy");
+              }}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              Settings → Strategy
+            </button>
+            .
+          </p>
+        </div>
+      ) : !events.length ? (
         <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
           {isLoading
             ? "Run started. Waiting for the first events…"
@@ -458,6 +523,23 @@ export function TradingDashboard() {
       ) : (
         <>
           <PnlTiles pnl={pnl} />
+          {Object.keys(skipCounts).length > 0 && (
+            <details className="rounded-lg border border-border bg-card px-4 py-2">
+              <summary className="cursor-pointer text-sm text-muted-foreground">
+                Bars skipped:{" "}
+                {Object.values(skipCounts)
+                  .reduce((a, b) => a + b, 0)
+                  .toLocaleString("en-US")}{" "}
+                (why the strategy passed)
+              </summary>
+              <div className="mt-2 max-w-xl pb-1">
+                <SkipReasons
+                  counts={skipCounts}
+                  limit={10}
+                />
+              </div>
+            </details>
+          )}
           <div className="grid gap-3 lg:grid-cols-2">
             <Panel
               title="Equity"
