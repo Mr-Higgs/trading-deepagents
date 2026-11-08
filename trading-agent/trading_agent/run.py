@@ -78,10 +78,15 @@ def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool =
     from trading_agent.strategy.agents.verdict_cache import VerdictCache
 
     cache = VerdictCache(enabled=True, refresh=refresh) if (use_cache and cfg.agents.cache) else None
+    lessons = None
+    if cfg.agents.lessons:
+        from trading_agent.lessons import LessonStore
+
+        lessons = LessonStore()
     return AgentStrategy(
         inner, build_orchestrator(cfg), cfg.pair,
         authority=cfg.agents.authority, cache=cache, orchestrator_model=cfg.agents.orchestrator_model,
-        point_in_time=point_in_time, veto_default=cfg.agents.veto_default,
+        point_in_time=point_in_time, veto_default=cfg.agents.veto_default, lessons=lessons, lessons_n=cfg.agents.lessons_n,
     )
 
 

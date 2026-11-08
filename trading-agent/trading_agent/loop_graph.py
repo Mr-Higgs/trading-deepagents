@@ -52,7 +52,7 @@ def _mask_account(acct: str) -> str:
     return f"{acct[:3]}…{acct[-4:]}" if len(acct) > 8 else acct
 
 
-_AGENT_FIELDS = {"mode", "authority", "orchestrator_model", "analyst_model", "technical", "fundamental", "sentiment", "veto_default", "cftc_code", "cache"}
+_AGENT_FIELDS = {"mode", "authority", "orchestrator_model", "analyst_model", "technical", "fundamental", "sentiment", "veto_default", "cftc_code", "cache", "lessons", "lessons_n"}
 
 
 def _apply_agent_overrides(cfg, overrides: dict | None):

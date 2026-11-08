@@ -232,6 +232,8 @@ class AgentsConfig:
     veto_default: bool = False  # gate posture: True => veto unless analysts clearly support the trade
     cftc_code: str = "232741"
     cache: bool = True  # cache LLM verdicts by signal so backtest re-runs are deterministic and free
+    lessons: bool = False  # show the gate the most recent post-trade lessons (trading_agent.lessons), point-in-time
+    lessons_n: int = 5
 
 
 @dataclass(frozen=True)
@@ -453,6 +455,8 @@ def load_config(config_dir: str | Path) -> AppConfig:
         veto_default=bool(agents_raw.get("veto_default", False)),
         cftc_code=str(agents_raw.get("cftc_code", "232741")),
         cache=bool(agents_raw.get("cache", True)),
+        lessons=bool(agents_raw.get("lessons", False)),
+        lessons_n=int(agents_raw.get("lessons_n", 5)),
     )
 
     return AppConfig(pairs=pairs, sessions=sessions, risk=risk, strategy=strategy, config_dir=config_dir, agents=agents)
