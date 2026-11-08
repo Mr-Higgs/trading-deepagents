@@ -74,46 +74,60 @@ def _segments(records: list[dict[str, Any]]) -> Iterable[list[dict[str, Any]]]:
         yield seg
 
 
+def _settle_segment(seg: list[dict[str, Any]]) -> list[ClosedTrade]:
+    signals = {r["signal_id"]: r for r in seg if r.get("type") == "SIGNAL" and r.get("signal_id")}
+    submits = {r["trade_id"]: r for r in seg if r.get("type") == "SUBMIT" and r.get("trade_id")}
+    pnl: dict[str, float] = {}
+    closed: dict[str, dict[str, Any]] = {}
+    for r in seg:
+        t, tid = r.get("type"), r.get("trade_id")
+        if tid not in submits or t not in {"EXIT", "PARTIAL_EXIT", "FINANCING"}:
+            continue
+        pnl[tid] = pnl.get(tid, 0.0) + float(r.get("pnl") or 0.0)
+        if t == "EXIT" or (t == "PARTIAL_EXIT" and r.get("remaining_units") == 0):
+            closed[tid] = r
+    out = []
+    for tid, ex in closed.items():
+        if ex.get("exit_reason") in _SKIP_EXIT_REASONS:
+            continue
+        sub = submits[tid]
+        sig = signals.get(sub.get("signal_id"), {})
+        risk = sub.get("risk_amount")
+        run_id = str(sub.get("run_id", "?"))
+        feats = sig.get("features") or {}
+        out.append(ClosedTrade(
+            key=f"{run_id}:{tid}", run_id=run_id, trade_id=tid, source=_source(run_id),
+            instrument=sig.get("instrument", "?"), direction=sig.get("direction", "?"), setup_id=sig.get("setup_id", "?"),
+            strategy_version=str(sub.get("strategy_version", "?")), opened=sub["ts"], resolved=ex["ts"],
+            pnl=round(pnl[tid], 2), r_multiple=round(pnl[tid] / float(risk), 2) if risk else None,
+            exit_reason=str(ex.get("exit_reason") or "?"), entry_ref=sig.get("entry_ref"), stop=sub.get("stop"), tp=sub.get("tp"),
+            features={k: feats[k] for k in _FEATURE_KEYS if k in feats}, verdict=feats.get("llm_verdict"),
+        ))
+    return sorted(out, key=lambda t: t.resolved)
+
+
 def settle(records: list[dict[str, Any]]) -> list[ClosedTrade]:
-    """Closed trades in one event log, in close order. A later segment of the same run_id wins."""
-    out: dict[str, ClosedTrade] = {}
-    for seg in _segments(records):
-        signals = {r["signal_id"]: r for r in seg if r.get("type") == "SIGNAL" and r.get("signal_id")}
-        submits = {r["trade_id"]: r for r in seg if r.get("type") == "SUBMIT" and r.get("trade_id")}
-        pnl: dict[str, float] = {}
-        closed: dict[str, dict[str, Any]] = {}
-        for r in seg:
-            t, tid = r.get("type"), r.get("trade_id")
-            if tid not in submits or t not in {"EXIT", "PARTIAL_EXIT", "FINANCING"}:
-                continue
-            pnl[tid] = pnl.get(tid, 0.0) + float(r.get("pnl") or 0.0)
-            if t == "EXIT" or (t == "PARTIAL_EXIT" and r.get("remaining_units") == 0):
-                closed[tid] = r
-        for tid, ex in closed.items():
-            if ex.get("exit_reason") in _SKIP_EXIT_REASONS:
-                continue
-            sub = submits[tid]
-            sig = signals.get(sub.get("signal_id"), {})
-            risk = sub.get("risk_amount")
-            run_id = str(sub.get("run_id", "?"))
-            feats = sig.get("features") or {}
-            out[f"{run_id}:{tid}"] = ClosedTrade(
-                key=f"{run_id}:{tid}", run_id=run_id, trade_id=tid, source=_source(run_id),
-                instrument=sig.get("instrument", "?"), direction=sig.get("direction", "?"), setup_id=sig.get("setup_id", "?"),
-                strategy_version=str(sub.get("strategy_version", "?")), opened=sub["ts"], resolved=ex["ts"],
-                pnl=round(pnl[tid], 2), r_multiple=round(pnl[tid] / float(risk), 2) if risk else None,
-                exit_reason=str(ex.get("exit_reason") or "?"), entry_ref=sig.get("entry_ref"), stop=sub.get("stop"), tp=sub.get("tp"),
-                features={k: feats[k] for k in _FEATURE_KEYS if k in feats}, verdict=feats.get("llm_verdict"),
-            )
-    return sorted(out.values(), key=lambda t: t.resolved)
+    """Closed trades in one run's event log, in close order. A re-run appended to the same file
+    (a later RUN_START) replaces the earlier run entirely, including trades the re-run no longer takes."""
+    segs = list(_segments(records))
+    return _settle_segment(segs[-1]) if segs else []
 
 
 def settle_logs(paths: Iterable[str | Path]) -> list[ClosedTrade]:
+    """Backtest logs settle per file. Live logs settle as one stream: each restart starts a new log but the
+    OANDA backend keeps tracking trades opened before it, so a trade's SUBMIT and EXIT can sit in different files
+    (OANDA trade ids are account-unique, so merging is safe)."""
     trades: dict[str, ClosedTrade] = {}
+    live: list[dict[str, Any]] = []
     for p in paths:
         records = [json.loads(line) for line in Path(p).read_text().splitlines() if line.strip()]
+        if records and _source(str(records[0].get("run_id", ""))) == "live":
+            live += records
+            continue
         for t in settle(records):
             trades[t.key] = t
+    for t in _settle_segment(sorted(live, key=lambda r: _ts(r["ts"]))):
+        trades[t.key] = t
     return sorted(trades.values(), key=lambda t: t.resolved)
 
 

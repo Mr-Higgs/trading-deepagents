@@ -46,12 +46,24 @@ def test_settle_skips_end_of_window_liquidation_and_keeps_last_rerun():
     rerun = _log("bt-a")  # same run_id appended to the same file: the later segment wins, not a sum
     assert [t.pnl for t in settle(log + rerun)] == [75.0]
     assert settle(rerun)[0].source == "backtest"
+    dropped = [r for r in _log("bt-a") if r.get("trade_id") != "s1-t1"]  # the re-run no longer takes s1
+    assert settle(_log("bt-a") + dropped) == []
 
 
 def test_settle_logs_reads_files(tmp_path):
     p = tmp_path / "events.jsonl"
     p.write_text("\n".join(json.dumps(r) for r in _log()) + "\n")
     assert [t.key for t in settle_logs([p])] == ["live-1:s1-t1"]
+
+
+def test_settle_logs_joins_a_live_trade_across_a_restart(tmp_path):
+    log = _log("live-1")
+    a, b = tmp_path / "events-live-1.jsonl", tmp_path / "events-live-2.jsonl"
+    a.write_text("\n".join(json.dumps(r) for r in log[:4]) + "\n")  # stopped after the partial exit
+    restart = [_rec("2026-07-01T20:00:00+00:00", "RUN_START", "live-2")] + [{**r, "run_id": "live-2"} for r in log[4:6]]
+    b.write_text("\n".join(json.dumps(r) for r in restart) + "\n")
+    [t] = settle_logs([b, a])
+    assert t.key == "live-1:s1-t1" and t.pnl == 75.0 and t.resolved == "2026-07-02T09:00:00+00:00"
 
 
 def _row(key: str, resolved: str, lesson: str = "L", instrument: str = "AUD_USD") -> dict:

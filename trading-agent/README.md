@@ -226,7 +226,8 @@ uv run --group phase2 python -m trading_agent.lessons data/logs/events-live-*.js
 
 - **Settle:** replays each JSONL log into closed trades (total P/L including partials and swap,
   `R = P/L / risk_amount`, `resolved` = time of the final exit). Open trades and backtest
-  `END_OF_WINDOW` liquidations are skipped; a re-run appended to the same log replaces the earlier one.
+  `END_OF_WINDOW` liquidations are skipped; a re-run appended to the same log replaces the earlier run. Live logs are
+  settled together, so a trade opened before a restart and closed after it is still found.
 - **Reflect:** one structured call per not-yet-reviewed trade (`--model`, default `anthropic:claude-haiku-4-5`)
   returns a 2-4 sentence lesson and, only if the trade points at one, a testable config hypothesis.
 - **Record:** `data/lessons.jsonl` (idempotent by `run_id:trade_id`; a failed reflection is retried next pass), a
