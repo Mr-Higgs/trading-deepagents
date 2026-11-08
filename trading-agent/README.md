@@ -279,12 +279,11 @@ holdout chain, and `execution.backend` is still `simulated`. Phase 3 closes that
 
 Only starts after a config survives the Phase 3 forward test.
 
-1. **LLM post-trade review.** The spec's remaining LLM uses — "compare current setups to prior trades" and
-   "post-trade analysis and lessons" — are not built. Add a read-only reviewer that consumes closed trades
-   (`account` graph `closed_trades` + the JSONL logs) and appends lessons / new hypotheses to
-   `research/JOURNAL.md` and `research/HYPOTHESES.md`. It writes markdown only; it never touches config.
-   This feeds the research loop, so the three-stage chain becomes a closed loop: fills → lessons →
-   hypotheses → search spaces → optimizer → holdout → config.
+1. **LLM post-trade review.** Built as a manual step: `trading_agent.lessons` (see [Post-trade lessons](#post-trade-lessons))
+   settles closed trades from the JSONL logs and appends lessons / hypotheses to `research/JOURNAL.md` and
+   `research/HYPOTHESES.md`, and can optionally show past lessons to the gate. It writes markdown only; it never
+   touches config. Remaining: run it automatically after each live session, so the chain is a closed loop:
+   fills → lessons → hypotheses → search spaces → optimizer → holdout → config.
 2. **Forward-test log.** Per-run markdown under `research/forward/` (one file per live run: config version,
    window, fills, deviation from backtest) so the paper record is reviewable without SQLite.
 3. **Second pair.** Add one of EUR/USD, GBP/USD or USD/JPY to `pairs.yaml`, with its own spread file under
