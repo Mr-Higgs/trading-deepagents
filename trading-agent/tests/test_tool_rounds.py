@@ -14,6 +14,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
+from pydantic import Field
 
 from trading_agent.strategy.agents import orchestrator
 from trading_agent.strategy.agents.schemas import AnalystView
@@ -29,18 +30,18 @@ def lookup() -> str:
 class _Looper(BaseChatModel):
     """Calls `lookup` whenever it is bound; otherwise answers through whatever tool is left (the structured one)."""
 
-    bound: list[str] = []
-    seen: list[list[str]] = []
+    bound: list[str] = Field(default_factory=list)
+    seen: list[list[str]] = Field(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
         return "looper"
 
-    def bind_tools(self, tools: Any, **kw: Any):  # noqa: ARG002
+    def bind_tools(self, tools: Any, **kw: Any):
         names = [t.name if hasattr(t, "name") else t["function"]["name"] if "function" in t else t["name"] for t in tools]
         return self.model_copy(update={"bound": names})
 
-    def _generate(self, messages, stop=None, run_manager=None, **kw):  # noqa: ARG002
+    def _generate(self, messages, stop=None, run_manager=None, **kw):
         self.seen.append(list(self.bound))
         n = len(messages)
         if "lookup" in self.bound:
