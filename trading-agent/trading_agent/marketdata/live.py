@@ -1,4 +1,4 @@
-"""LiveOandaSource: poll OANDA and yield each M15 bar once, as it closes.
+"""LiveOandaSource: poll OANDA and yield each entry-timeframe bar once, as it closes.
 
 Feeds the SAME engine loop as the backtest - the only difference is that `stream()` blocks polling
 for the next completed candle instead of iterating a fixed history.

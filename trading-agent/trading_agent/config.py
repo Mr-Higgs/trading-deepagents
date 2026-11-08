@@ -20,7 +20,7 @@ _WEEKDAYS = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 
 # `setup.require_regime` is on.
 STYLES: dict[str, dict[str, str]] = {
     "scalping": {"trend": "M15", "bias": "M5", "entry": "M1"},
-    "intraday": {"regime": "D", "trend": "H4", "bias": "H1", "entry": "M15"},
+    "intraday": {"regime": "H4", "trend": "H1", "bias": "M15", "entry": "M5"},
     "swing": {"trend": "H4", "bias": "H1", "entry": "M15"},
     "position": {"trend": "D", "bias": "H4", "entry": "H1"},
 }

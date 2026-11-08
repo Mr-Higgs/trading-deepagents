@@ -30,7 +30,7 @@ export type CandlesSnapshot = {
   error?: string;
 };
 
-export const TIMEFRAMES = ["M15", "H1", "H4", "D"] as const;
+export const TIMEFRAMES = ["M5", "M15", "H1", "H4", "D"] as const;
 
 /** Poll the read-only `candles` graph: OHLC + Ichimoku lines + the alert/signal taxonomy. */
 export function useCandles(pollMs = 45_000, fixedTimeframe?: string) {

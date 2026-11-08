@@ -9,7 +9,7 @@ import { useCandles } from "@/app/hooks/useCandles";
 import { CandlestickChart, type ChartHandle } from "@/app/components/CandlestickChart";
 import type { Trade } from "@/app/utils/reduceEvents";
 
-const PANES = ["D", "H4", "H1", "M15"] as const;
+const PANES = ["H4", "H1", "M15", "M5"] as const;
 
 type PositionHandlers = {
   onModifyPosition?: (tradeId: string, kind: "sl" | "tp", price: number) => void;

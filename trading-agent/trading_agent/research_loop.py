@@ -94,19 +94,19 @@ def _apply(cfg, overrides: dict):
 
 
 def _source(cfg, start: str, end: str, cache_dir: str) -> HistoricalOandaSource:
-    key = (cfg.pair.symbol, start, end)
+    tfs = cfg.strategy.timeframes()
+    key = (cfg.pair.symbol, start, end, tuple(sorted(tfs.items())))  # tfs in the key: a style change must not reuse another stack's frames
     if key not in _source_cache:
         from trading_agent.marketdata.oanda_client import OandaClient  # lazy: keeps import light
 
-        tfs = cfg.strategy.timeframes()
         _source_cache[key] = HistoricalOandaSource.from_oanda(
             OandaClient.from_env(), cfg.pair.symbol, tfs, _utc_day(start), _utc_day(end), cache_dir=cache_dir
         )
     return _source_cache[key]
 
 
-def _candles_path(start: str, end: str, cache_dir: str, symbol: str) -> str | None:
-    p = Path(cache_dir) / f"{symbol}_M15_{start.replace('-', '')}_{end.replace('-', '')}.csv"
+def _candles_path(start: str, end: str, cache_dir: str, symbol: str, entry_tf: str) -> str | None:
+    p = Path(cache_dir) / f"{symbol}_{entry_tf}_{start.replace('-', '')}_{end.replace('-', '')}.csv"
     return str(p) if p.exists() else None
 
 
@@ -127,7 +127,7 @@ def run_backtest(overrides: dict, start: str, end: str, config_dir: str = _DEFAU
         log = EventLog(tmp, run_id=f"loop-{start}-{end}", strategy_version=cfg.strategy_version)
         engine.run(source, build_strategy(cfg.strategy, cfg.pair), RiskEngine(cfg.risk, cfg.pair), _simulated_backend(cfg), log, cfg)
         log.close()
-        candles = _candles_path(start, end, cache_dir, cfg.pair.symbol) if with_excursions else None
+        candles = _candles_path(start, end, cache_dir, cfg.pair.symbol, cfg.strategy.entry_tf) if with_excursions else None
         return analyze(tmp, candles)
     finally:
         Path(tmp).unlink(missing_ok=True)

@@ -1,0 +1,444 @@
+{
+  "meta": {
+    "pair": "AUD_USD",
+    "strategy": "ichimoku_pullback",
+    "start": "2022-01-01",
+    "end": "2026-07-01",
+    "holdout_start": "2026-07-01",
+    "anchored": false,
+    "train_months": 12,
+    "test_months": 3,
+    "price_mode": "bidask",
+    "entry_tf": "M15",
+    "space": "data/research_runs/research-20261108T002255Z/search_spaces/iter-004.json"
+  },
+  "settings": {
+    "trials": 200,
+    "objective": "sharpe",
+    "min_trades": 30,
+    "radius": 0.15,
+    "min_neighbors": 3,
+    "seed": 0,
+    "pbo_splits": 16,
+    "jobs": 6
+  },
+  "summary": {
+    "oos_trades": 442,
+    "oos_expectancy": -8.117118750031409,
+    "oos_expectancy_ci95": [
+      -12.113191690693236,
+      -4.090960621522284
+    ],
+    "oos_sharpe_ann": -1.4823973124179899,
+    "oos_sharpe_ann_ci95": [
+      -2.4141124685235136,
+      -0.4638916220192815
+    ],
+    "oos_total_pnl": -3587.7664875138826,
+    "deflated_sharpe": 0.0,
+    "pbo_mean": 0.30483405483404924,
+    "n_trials": 200,
+    "folds": 14
+  },
+  "folds": [
+    {
+      "train": [
+        "2022-01-01T00:00:00+00:00",
+        "2023-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-01-01T00:00:00+00:00",
+        "2023-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": true,
+        "rr": 2.75,
+        "stop_buffer_pips": 2.0
+      },
+      "train_score": -0.8080179809721407,
+      "plateau_score": -0.8080179809721407,
+      "pbo": 0.040248640248640194,
+      "oos": {
+        "trades": 38,
+        "expectancy": 2.8381450746036965,
+        "profit_factor": 2.6422386139241287,
+        "sharpe": 1.2823310073197483,
+        "max_drawdown_pct": 0.005103386638791556,
+        "total_pnl": 107.84951283494047
+      }
+    },
+    {
+      "train": [
+        "2022-04-01T00:00:00+00:00",
+        "2023-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-04-01T00:00:00+00:00",
+        "2023-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": false,
+        "require_tk_momentum": true,
+        "rr": 2.5,
+        "stop_buffer_pips": 10.0
+      },
+      "train_score": -0.6356942794429191,
+      "plateau_score": -0.6356942794429191,
+      "pbo": 0.6410644910644119,
+      "oos": {
+        "trades": 16,
+        "expectancy": -9.856331884535123,
+        "profit_factor": 0.2130456544755537,
+        "sharpe": -2.15605996925848,
+        "max_drawdown_pct": 0.018456535148262287,
+        "total_pnl": -157.70131015256197
+      }
+    },
+    {
+      "train": [
+        "2022-07-01T00:00:00+00:00",
+        "2023-07-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-07-01T00:00:00+00:00",
+        "2023-10-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": true,
+        "rr": 2.5,
+        "stop_buffer_pips": 2.0
+      },
+      "train_score": -1.3940313877055008,
+      "plateau_score": -1000000.0,
+      "pbo": 0.07746697746697817,
+      "oos": {
+        "trades": 27,
+        "expectancy": -1.2492085877261159,
+        "profit_factor": 0.6919773523247555,
+        "sharpe": -0.5944517751929835,
+        "max_drawdown_pct": 0.010409777875685611,
+        "total_pnl": -33.72863186860513
+      }
+    },
+    {
+      "train": [
+        "2022-10-01T00:00:00+00:00",
+        "2023-10-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2023-10-01T00:00:00+00:00",
+        "2024-01-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": true,
+        "rr": 3.0,
+        "stop_buffer_pips": 10.0
+      },
+      "train_score": -1.0352670097548442,
+      "plateau_score": -1.0352670097548442,
+      "pbo": 0.08861693861693877,
+      "oos": {
+        "trades": 48,
+        "expectancy": 0.7771171805202891,
+        "profit_factor": 1.3554985305188898,
+        "sharpe": 0.634330509513965,
+        "max_drawdown_pct": 0.010133158448296641,
+        "total_pnl": 37.30162466497388
+      }
+    },
+    {
+      "train": [
+        "2023-01-01T00:00:00+00:00",
+        "2024-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-01-01T00:00:00+00:00",
+        "2024-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": true,
+        "rr": 3.0,
+        "stop_buffer_pips": 4.0
+      },
+      "train_score": -0.36026924606337063,
+      "plateau_score": -0.36026924606337063,
+      "pbo": 0.24898989898989898,
+      "oos": {
+        "trades": 7,
+        "expectancy": 3.945038894751653,
+        "profit_factor": 16.733079000658712,
+        "sharpe": 1.930197582065117,
+        "max_drawdown_pct": 0.0004258821001740779,
+        "total_pnl": 27.61527226326157
+      }
+    },
+    {
+      "train": [
+        "2023-04-01T00:00:00+00:00",
+        "2024-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-04-01T00:00:00+00:00",
+        "2024-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "kijun",
+        "require_chikou": false,
+        "require_tk_momentum": false,
+        "rr": 2.75,
+        "stop_buffer_pips": 10.0
+      },
+      "train_score": -0.22008720382355285,
+      "plateau_score": -1000000.0,
+      "pbo": 0.578282828282806,
+      "oos": {
+        "trades": 23,
+        "expectancy": -48.43035340287571,
+        "profit_factor": 0.02136152872058478,
+        "sharpe": -4.858859646568524,
+        "max_drawdown_pct": 0.1114583728266143,
+        "total_pnl": -1113.8981282661414
+      }
+    },
+    {
+      "train": [
+        "2023-07-01T00:00:00+00:00",
+        "2024-07-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-07-01T00:00:00+00:00",
+        "2024-10-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": false,
+        "rr": 2.5,
+        "stop_buffer_pips": 4.0
+      },
+      "train_score": 0.13808466250352844,
+      "plateau_score": 0.13808466250352844,
+      "pbo": 0.5290598290598291,
+      "oos": {
+        "trades": 49,
+        "expectancy": 3.4678828553219163,
+        "profit_factor": 2.4028705261762084,
+        "sharpe": 1.5159088511586654,
+        "max_drawdown_pct": 0.010101916026868161,
+        "total_pnl": 169.9262599107739
+      }
+    },
+    {
+      "train": [
+        "2023-10-01T00:00:00+00:00",
+        "2024-10-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2024-10-01T00:00:00+00:00",
+        "2025-01-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": false,
+        "rr": 3.0,
+        "stop_buffer_pips": 8.0
+      },
+      "train_score": 0.5423349415458029,
+      "plateau_score": 0.5423349415458029,
+      "pbo": 0.45707070707070707,
+      "oos": {
+        "trades": 65,
+        "expectancy": -6.421588835508277,
+        "profit_factor": 0.30897942877983064,
+        "sharpe": -2.1229835988476213,
+        "max_drawdown_pct": 0.05340643506266152,
+        "total_pnl": -417.40327430803796
+      }
+    },
+    {
+      "train": [
+        "2024-01-01T00:00:00+00:00",
+        "2025-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-01-01T00:00:00+00:00",
+        "2025-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": false,
+        "require_tk_momentum": true,
+        "rr": 2.25,
+        "stop_buffer_pips": 10.0
+      },
+      "train_score": -0.6560426712099248,
+      "plateau_score": -0.6560426712099248,
+      "pbo": 0.40116550116550115,
+      "oos": {
+        "trades": 9,
+        "expectancy": -60.41598745766791,
+        "profit_factor": 0.0920074140438301,
+        "sharpe": -2.5456999382239873,
+        "max_drawdown_pct": 0.0594908735109231,
+        "total_pnl": -543.7438871190112
+      }
+    },
+    {
+      "train": [
+        "2024-04-01T00:00:00+00:00",
+        "2025-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-04-01T00:00:00+00:00",
+        "2025-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "kijun",
+        "require_chikou": false,
+        "require_tk_momentum": false,
+        "rr": 2.5,
+        "stop_buffer_pips": 4.0
+      },
+      "train_score": -0.7558335252779042,
+      "plateau_score": -0.7558335252779042,
+      "pbo": 0.3152680652680653,
+      "oos": {
+        "trades": 32,
+        "expectancy": -20.486026858467497,
+        "profit_factor": 0.4612651780199094,
+        "sharpe": -2.0002919789924505,
+        "max_drawdown_pct": 0.06555528594709581,
+        "total_pnl": -655.5528594709599
+      }
+    },
+    {
+      "train": [
+        "2024-07-01T00:00:00+00:00",
+        "2025-07-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-07-01T00:00:00+00:00",
+        "2025-10-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "kijun",
+        "require_chikou": false,
+        "require_tk_momentum": false,
+        "rr": 2.75,
+        "stop_buffer_pips": 2.0
+      },
+      "train_score": -0.8723314459673954,
+      "plateau_score": -0.8723314459673954,
+      "pbo": 0.3192307692307914,
+      "oos": {
+        "trades": 30,
+        "expectancy": -18.353385162957043,
+        "profit_factor": 0.4451474200409909,
+        "sharpe": -2.043415874177152,
+        "max_drawdown_pct": 0.05506015548887111,
+        "total_pnl": -550.6015548887112
+      }
+    },
+    {
+      "train": [
+        "2024-10-01T00:00:00+00:00",
+        "2025-10-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2025-10-01T00:00:00+00:00",
+        "2026-01-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": false,
+        "rr": 2.75,
+        "stop_buffer_pips": 2.0
+      },
+      "train_score": -1.6030444886717548,
+      "plateau_score": -1.6030444886717548,
+      "pbo": 0.04996114996114996,
+      "oos": {
+        "trades": 28,
+        "expectancy": -4.053261546663275,
+        "profit_factor": 0.5425007758067607,
+        "sharpe": -1.0692665242576174,
+        "max_drawdown_pct": 0.014586926831897596,
+        "total_pnl": -113.4913233065717
+      }
+    },
+    {
+      "train": [
+        "2025-01-01T00:00:00+00:00",
+        "2026-01-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2026-01-01T00:00:00+00:00",
+        "2026-04-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": true,
+        "rr": 3.0,
+        "stop_buffer_pips": 10.0
+      },
+      "train_score": -1.3368519815734523,
+      "plateau_score": -1.3368519815734523,
+      "pbo": 0.1491064491064491,
+      "oos": {
+        "trades": 29,
+        "expectancy": -0.9062321114685488,
+        "profit_factor": 0.9380324477735337,
+        "sharpe": -0.12186423363777067,
+        "max_drawdown_pct": 0.03968481447031079,
+        "total_pnl": -26.280731232587915
+      }
+    },
+    {
+      "train": [
+        "2025-04-01T00:00:00+00:00",
+        "2026-04-01T00:00:00+00:00"
+      ],
+      "test": [
+        "2026-04-01T00:00:00+00:00",
+        "2026-07-01T00:00:00+00:00"
+      ],
+      "params": {
+        "stop_rule": "cloud",
+        "require_chikou": true,
+        "require_tk_momentum": false,
+        "rr": 2.75,
+        "stop_buffer_pips": 4.0
+      },
+      "train_score": -0.5453000992084437,
+      "plateau_score": -1000000.0,
+      "pbo": 0.37214452214452215,
+      "oos": {
+        "trades": 41,
+        "expectancy": -7.757498940844972,
+        "profit_factor": 0.5159630304554023,
+        "sharpe": -1.5582305602885933,
+        "max_drawdown_pct": 0.04886590146802687,
+        "total_pnl": -318.0574565746438
+      }
+    }
+  ],
+  "recommended_params": {
+    "stop_rule": "cloud",
+    "require_chikou": true,
+    "require_tk_momentum": false,
+    "rr": 2.75,
+    "stop_buffer_pips": 4.0
+  }
+}

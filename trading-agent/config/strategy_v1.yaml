@@ -1,8 +1,8 @@
 # Versioned strategy config. Bump `version` on any rule change; every trade is tagged with it.
-version: "v3.0.0"            # Ichimoku.pdf Setup #1 (pullback) / Setup #2 (breaking into the cloud) + quality filters
+version: "v3.1.0"            # Ichimoku.pdf Setup #1 (pullback) / Setup #2 (breaking into the cloud) + quality filters
 instrument: AUD_USD
 name: ichimoku_pullback   # active strategy: "ichimoku_pullback" | "ichimoku_breakout" | "ichimoku_confluence"
-style: intraday   # trading style -> triple-screen stack: scalping M15/M5/M1 | intraday H4/H1/M15 | swing H4/H1/M15 | position D/H4/H1
+style: intraday   # trading style -> triple-screen stack: scalping M15/M5/M1 | intraday H4/H1/M15/M5 (regime/trend/bias/entry) | swing H4/H1/M15 | position D/H4/H1
 timeframes:    # fallback only: used when `style` is omitted. `style` (above) wins when present.
   trend: H4     # cloud direction = long/short bias
   bias: H1      # pullback context

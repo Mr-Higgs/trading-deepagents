@@ -107,3 +107,9 @@ def test_legacy_verdict_still_importable_but_deprecated():
     with pytest.warns(DeprecationWarning):
         keep, _ = R.verdict({"expectancy": 10.0}, {"expectancy": 8.0, "trades": 40})
     assert keep
+
+
+def test_candles_path_follows_entry_timeframe(tmp_path) -> None:
+    (tmp_path / "AUD_USD_M5_20250101_20250201.csv").write_text("")
+    assert R._candles_path("2025-01-01", "2025-02-01", str(tmp_path), "AUD_USD", "M5").endswith("AUD_USD_M5_20250101_20250201.csv")
+    assert R._candles_path("2025-01-01", "2025-02-01", str(tmp_path), "AUD_USD", "M15") is None

@@ -71,7 +71,7 @@ type Form = Pick<
 // trading styles → triple-screen stack (mirrors config.py STYLES; shown as a hint next to the picker)
 const STYLES = [
   { id: "scalping", name: "Scalping", stack: "M15/M5/M1" },
-  { id: "intraday", name: "Intraday", stack: "H1/M15/M15" },
+  { id: "intraday", name: "Intraday", stack: "H4/H1/M15/M5" },
   { id: "swing", name: "Swing", stack: "H4/H1/M15" },
   { id: "position", name: "Position", stack: "D/H4/H1" },
 ];
