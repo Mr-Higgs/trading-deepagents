@@ -65,6 +65,7 @@ export function useAccount(pollMs = 10_000) {
   const [data, setData] = useState<AccountSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null); // last successful poll (ms), for "updated Xs ago"
   const inFlight = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -76,6 +77,7 @@ export function useAccount(pollMs = 10_000) {
       else {
         setData(res);
         setError(null);
+        setUpdatedAt(Date.now());
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -98,5 +100,5 @@ export function useAccount(pollMs = 10_000) {
     };
   }, [refresh, pollMs]);
 
-  return { data, loading, error, refresh };
+  return { data, loading, error, updatedAt, refresh };
 }

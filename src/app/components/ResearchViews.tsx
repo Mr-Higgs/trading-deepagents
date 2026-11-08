@@ -1,12 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Square, Repeat, CheckCircle2, XCircle, MinusCircle, Loader2, FlaskConical, FileJson } from "lucide-react";
+import {
+  Square,
+  Repeat,
+  CheckCircle2,
+  XCircle,
+  MinusCircle,
+  Loader2,
+  FlaskConical,
+  FileJson,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { IterMetrics, Iteration, ResearchState } from "@/app/utils/reduceResearch";
+import type {
+  IterMetrics,
+  Iteration,
+  ResearchState,
+} from "@/app/utils/reduceResearch";
+import { Term } from "@/app/utils/glossary";
 
-const signedUsd = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const expColor = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "text-muted-foreground");
+const signedUsd = (n: number) =>
+  `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+const expColor = (n: number) =>
+  n > 0 ? "text-success" : n < 0 ? "text-destructive" : "text-muted-foreground";
 const pf = (v: number | "inf") => (v === "inf" ? "∞" : v.toFixed(2));
 const winPct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
@@ -15,10 +34,20 @@ const RESEARCH_MODELS = [
   { value: "anthropic:claude-opus-4-8", label: "Opus 4.8 (deep)" },
 ];
 
-// The launcher — iterations input + model select + Run/Stop. Shared by the Live toolbar and Backtest tab.
+// The launcher — iterations input + model select + Run/Stop (Research tab).
 // `active` = a research run is the CURRENT run (show Stop); otherwise Run loop, disabled while any other
 // run streams (isLoading) since the server runs one at a time.
-export function ResearchControls({ isLoading, active, onStart, onStop }: { isLoading: boolean; active: boolean; onStart: (iterations: number, model: string) => void; onStop: () => void }) {
+export function ResearchControls({
+  isLoading,
+  active,
+  onStart,
+  onStop,
+}: {
+  isLoading: boolean;
+  active: boolean;
+  onStart: (iterations: number, model: string) => void;
+  onStop: () => void;
+}) {
   const [iters, setIters] = useState(5);
   const [model, setModel] = useState(RESEARCH_MODELS[0].value);
   return (
@@ -30,22 +59,43 @@ export function ResearchControls({ isLoading, active, onStart, onStop }: { isLoa
           min={1}
           max={25}
           value={iters}
-          onChange={(e) => setIters(Math.max(1, Math.min(25, Number(e.target.value) || 1)))}
+          onChange={(e) =>
+            setIters(Math.max(1, Math.min(25, Number(e.target.value) || 1)))
+          }
           disabled={isLoading}
           className="w-16 rounded-md border border-border bg-background px-2 py-1 font-mono text-sm"
         />
       </label>
-      <select value={model} onChange={(e) => setModel(e.target.value)} disabled={isLoading} className="rounded-md border border-border bg-background px-2 py-1 text-sm">
+      <select
+        value={model}
+        onChange={(e) => setModel(e.target.value)}
+        disabled={isLoading}
+        className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+      >
         {RESEARCH_MODELS.map((m) => (
-          <option key={m.value} value={m.value}>{m.label}</option>
+          <option
+            key={m.value}
+            value={m.value}
+          >
+            {m.label}
+          </option>
         ))}
       </select>
       {active ? (
-        <Button size="sm" variant="outline" onClick={onStop}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onStop}
+        >
           <Square className="mr-2 h-4 w-4" /> Stop
         </Button>
       ) : (
-        <Button size="sm" onClick={() => onStart(iters, model)} disabled={isLoading} className="bg-primary text-primary-foreground">
+        <Button
+          size="sm"
+          onClick={() => onStart(iters, model)}
+          disabled={isLoading}
+          className="text-primary-foreground bg-primary"
+        >
           <FlaskConical className="mr-2 h-4 w-4" /> Run loop
         </Button>
       )}
@@ -55,27 +105,63 @@ export function ResearchControls({ isLoading, active, onStart, onStop }: { isLoa
 
 function StatusBadge({ status }: { status: Iteration["status"] }) {
   const map = {
-    running: { cls: "border-chart-1/50 text-chart-1", icon: <Loader2 className="h-3 w-3 animate-spin" />, label: "running" },
-    proposed: { cls: "border-primary/50 text-primary", icon: <FileJson className="h-3 w-3" />, label: "proposed" },
-    kept: { cls: "border-success/50 text-success", icon: <CheckCircle2 className="h-3 w-3" />, label: "kept" },
-    reverted: { cls: "border-muted-foreground/40 text-muted-foreground", icon: <XCircle className="h-3 w-3" />, label: "reverted" },
-    skipped: { cls: "border-warning/50 text-warning", icon: <MinusCircle className="h-3 w-3" />, label: "skipped" },
+    running: {
+      cls: "border-chart-1/50 text-chart-1",
+      icon: <Loader2 className="h-3 w-3 animate-spin" />,
+      label: "running",
+    },
+    proposed: {
+      cls: "border-primary/50 text-primary",
+      icon: <FileJson className="h-3 w-3" />,
+      label: "proposed",
+    },
+    kept: {
+      cls: "border-success/50 text-success",
+      icon: <CheckCircle2 className="h-3 w-3" />,
+      label: "kept",
+    },
+    reverted: {
+      cls: "border-muted-foreground/40 text-muted-foreground",
+      icon: <XCircle className="h-3 w-3" />,
+      label: "reverted",
+    },
+    skipped: {
+      cls: "border-warning/50 text-warning",
+      icon: <MinusCircle className="h-3 w-3" />,
+      label: "skipped",
+    },
   }[status];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${map.cls}`}>
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${map.cls}`}
+    >
       {map.icon}
       {map.label}
     </span>
   );
 }
 
-function MetricPair({ label, is, oos }: { label: string; is: number; oos: number }) {
+function MetricPair({
+  label,
+  is,
+  oos,
+}: {
+  label: string;
+  is: number;
+  oos: number;
+}) {
   return (
     <div className="flex items-baseline gap-2 font-mono text-sm tabular-nums">
-      <span className="w-16 text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className="text-muted-foreground">IS</span>
+      <span className="w-16 text-xs uppercase tracking-wide text-muted-foreground">
+        <Term k="expectancy">{label}</Term>
+      </span>
+      <span className="text-muted-foreground">
+        <Term k="is">IS</Term>
+      </span>
       <span className={expColor(is)}>{signedUsd(is)}</span>
-      <span className="ml-2 text-muted-foreground">OOS</span>
+      <span className="ml-2 text-muted-foreground">
+        <Term k="oos">OOS</Term>
+      </span>
       <span className={`font-semibold ${expColor(oos)}`}>{signedUsd(oos)}</span>
     </div>
   );
@@ -84,7 +170,10 @@ function MetricPair({ label, is, oos }: { label: string; is: number; oos: number
 function MetricsLine({ m }: { m: IterMetrics }) {
   return (
     <span className="font-mono text-xs text-muted-foreground">
-      {m.trades} trades · win {winPct(m.win_rate)} · PF {pf(m.profit_factor)} · avg {m.avg_win_R.toFixed(2)}R / {m.avg_loss_R.toFixed(2)}R
+      {m.trades} trades · win {winPct(m.win_rate)} · <Term k="pf">PF</Term>{" "}
+      {pf(m.profit_factor)} · avg win/loss {m.avg_win_R.toFixed(2)}
+      <Term k="r">R</Term> / {m.avg_loss_R.toFixed(2)}
+      <Term k="r">R</Term>
     </span>
   );
 }
@@ -94,36 +183,69 @@ function IterationCard({ it }: { it: Iteration }) {
     <div className="rounded-lg border border-border bg-card px-4 py-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-sm font-semibold">Iteration {it.iteration}{it.total ? `/${it.total}` : ""}</span>
+          <span className="font-mono text-sm font-semibold">
+            Iteration {it.iteration}
+            {it.total ? `/${it.total}` : ""}
+          </span>
           <StatusBadge status={it.status} />
-          {it.version && <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{it.version}</span>}
+          {it.version && (
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {it.version}
+            </span>
+          )}
         </div>
         {typeof it.best_oos === "number" && (
-          <span className="font-mono text-xs text-muted-foreground">best OOS <span className={expColor(it.best_oos)}>{signedUsd(it.best_oos)}</span></span>
+          <span className="font-mono text-xs text-muted-foreground">
+            best OOS{" "}
+            <span className={expColor(it.best_oos)}>
+              {signedUsd(it.best_oos)}
+            </span>
+          </span>
         )}
       </div>
       {it.status === "running" && (
         <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          {it.phase === "evaluating" ? "Running the deterministic in-sample & out-of-sample gate…" : "Agent is probing in-sample and drafting a search space…"}
+          {it.phase === "evaluating"
+            ? "Running the deterministic in-sample & out-of-sample gate…"
+            : "Agent is probing in-sample and drafting a search space…"}
         </p>
       )}
-      {it.hypothesis && <p className="mt-2 text-sm font-medium text-foreground">{it.hypothesis}</p>}
+      {it.hypothesis && (
+        <p className="mt-2 text-sm font-medium text-foreground">
+          {it.hypothesis}
+        </p>
+      )}
       {it.overrides && Object.keys(it.overrides).length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {Object.entries(it.overrides).map(([k, v]) => (
-            <span key={k} className="rounded-md border border-border bg-muted/50 px-2 py-0.5 font-mono text-[11px]">{k}: <span className="text-foreground">{JSON.stringify(v)}</span></span>
+            <span
+              key={k}
+              className="rounded-md border border-border bg-muted/50 px-2 py-0.5 font-mono text-[11px]"
+            >
+              {k}: <span className="text-foreground">{JSON.stringify(v)}</span>
+            </span>
           ))}
         </div>
       )}
       {it.is_metrics && it.oos_metrics && (
         <div className="mt-2 space-y-1">
-          <MetricPair label="expectancy" is={it.is_metrics.expectancy} oos={it.oos_metrics.expectancy} />
+          <MetricPair
+            label="expectancy"
+            is={it.is_metrics.expectancy}
+            oos={it.oos_metrics.expectancy}
+          />
           <MetricsLine m={it.oos_metrics} />
         </div>
       )}
-      {it.gate && <p className="mt-2 font-mono text-[11px] text-muted-foreground">gate: {it.gate}</p>}
-      {it.rationale && <p className="mt-1 text-xs text-muted-foreground">{it.rationale}</p>}
+      {it.gate && (
+        <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+          gate: {it.gate}
+        </p>
+      )}
+      {it.rationale && (
+        <p className="mt-1 text-xs text-muted-foreground">{it.rationale}</p>
+      )}
       {it.note && <p className="mt-1 text-xs text-warning">{it.note}</p>}
     </div>
   );
@@ -133,39 +255,72 @@ function BaselineCard({ meta }: { meta: NonNullable<ResearchState["meta"]> }) {
   return (
     <div className="rounded-lg border border-border bg-card px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Baseline — the bar to beat</div>
-        <div className="font-mono text-xs text-muted-foreground">{meta.model}</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Baseline — the bar to beat
+        </div>
+        <div className="font-mono text-xs text-muted-foreground">
+          {meta.model}
+        </div>
       </div>
       {meta.baseline_oos && meta.oos_range ? (
         <>
-          <div className="mt-2"><MetricPair label="expectancy" is={meta.baseline_is.expectancy} oos={meta.baseline_oos.expectancy} /></div>
+          <div className="mt-2">
+            <MetricPair
+              label="expectancy"
+              is={meta.baseline_is.expectancy}
+              oos={meta.baseline_oos.expectancy}
+            />
+          </div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-            <span>IS {meta.is_range[0]} → {meta.is_range[1]}</span>
-            <span>OOS {meta.oos_range[0]} → {meta.oos_range[1]}</span>
+            <span>
+              IS {meta.is_range[0]} → {meta.is_range[1]}
+            </span>
+            <span>
+              OOS {meta.oos_range[0]} → {meta.oos_range[1]}
+            </span>
             <span>keep if OOS &gt; 0 and ≥ 60% of IS and ≥ 30 trades</span>
           </div>
         </>
       ) : (
         <>
           <div className="mt-2 flex items-baseline gap-2 font-mono text-sm tabular-nums">
-            <span className="w-16 text-xs uppercase tracking-wide text-muted-foreground">expectancy</span>
+            <span className="w-16 text-xs uppercase tracking-wide text-muted-foreground">
+              expectancy
+            </span>
             <span className="text-muted-foreground">IS</span>
-            <span className={expColor(meta.baseline_is.expectancy)}>{signedUsd(meta.baseline_is.expectancy)}</span>
+            <span className={expColor(meta.baseline_is.expectancy)}>
+              {signedUsd(meta.baseline_is.expectancy)}
+            </span>
           </div>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-            <span>IS {meta.is_range[0]} → {meta.is_range[1]}</span>
-            <span>proposes search spaces only — selection runs walk-forward in optimize.run</span>
+            <span>
+              IS {meta.is_range[0]} → {meta.is_range[1]}
+            </span>
+            <span>
+              proposes search spaces only — selection runs walk-forward in
+              optimize.run
+            </span>
           </div>
         </>
       )}
-      <p className="mt-2 text-[11px] text-muted-foreground">Changes are sandboxed to a config copy — your live trading config and git history are untouched. Run the CLI to adopt a winning config for real.</p>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Changes are sandboxed to a config copy — your live trading config and
+        git history are untouched. Run the CLI to adopt a winning config for
+        real.
+      </p>
     </div>
   );
 }
 
 // The live display: baseline + scrollable auto-scrolling iteration list + done summary. `className` sizes
-// the scroll region (flex-1 for the full Backtest tab, a bounded height for the Live-tab inline view).
-export function ResearchStream({ research, className }: { research: ResearchState; className?: string }) {
+// the scroll region (flex-1 by default).
+export function ResearchStream({
+  research,
+  className,
+}: {
+  research: ResearchState;
+  className?: string;
+}) {
   const { meta, iterations, done, phase } = research;
   const ref = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -180,14 +335,21 @@ export function ResearchStream({ research, className }: { research: ResearchStat
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
           <Loader2 className="h-8 w-8 animate-spin" />
-          <p className="text-sm">Warming up — running the baseline in-sample backtest…</p>
+          <p className="text-sm">
+            Warming up — running the baseline in-sample backtest…
+          </p>
         </div>
       );
     }
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
         <FlaskConical className="h-8 w-8" />
-        <p className="max-w-md text-center text-sm">No loop yet. Click <span className="font-medium text-foreground">Run loop</span> to watch the agent probe in-sample and propose one search space per round for the walk-forward optimizer.</p>
+        <p className="max-w-md text-center text-sm">
+          No loop yet. Click{" "}
+          <span className="font-medium text-foreground">Run loop</span> to watch
+          the agent probe in-sample and propose one search space per round for
+          the walk-forward optimizer.
+        </p>
       </div>
     );
   }
@@ -198,23 +360,42 @@ export function ResearchStream({ research, className }: { research: ResearchStat
         ref={ref}
         onScroll={(e) => {
           const el = e.currentTarget;
-          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          atBottom.current =
+            el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
-        className={`flex flex-col gap-2 overflow-auto ${className ?? "min-h-0 flex-1"}`}
+        className={`flex flex-col gap-2 overflow-auto ${
+          className ?? "min-h-0 flex-1"
+        }`}
       >
         {iterations.map((it) => (
-          <IterationCard key={it.iteration} it={it} />
+          <IterationCard
+            key={it.iteration}
+            it={it}
+          />
         ))}
         {done && (
-          <div className="rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm">
+          <div className="border-primary/40 bg-primary/5 rounded-lg border px-4 py-3 text-sm">
             <span className="font-semibold">Loop finished.</span>{" "}
             {done.proposed != null ? (
-              <>{done.proposed}/{done.iterations} search spaces proposed · run them through <span className="font-mono">optimize.run</span></>
+              <>
+                {done.proposed}/{done.iterations} search spaces proposed · run
+                them through <span className="font-mono">optimize.run</span>
+              </>
             ) : (
               <>
                 {done.accepted ?? 0}/{done.iterations} changes accepted
                 {typeof done.best_oos === "number" && (
-                  <> · final best OOS expectancy <span className={`font-mono font-semibold ${expColor(done.best_oos)}`}>{signedUsd(done.best_oos)}</span></>
+                  <>
+                    {" "}
+                    · final best OOS expectancy{" "}
+                    <span
+                      className={`font-mono font-semibold ${expColor(
+                        done.best_oos
+                      )}`}
+                    >
+                      {signedUsd(done.best_oos)}
+                    </span>
+                  </>
                 )}
               </>
             )}

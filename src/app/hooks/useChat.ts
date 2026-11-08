@@ -2,40 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
-import {
-  type Message,
-  type Assistant,
-  type Checkpoint,
-} from "@langchain/langgraph-sdk";
-import { v4 as uuidv4 } from "uuid";
-import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
-import type { TodoItem } from "@/app/types/types";
+import type { Assistant } from "@langchain/langgraph-sdk";
 import { useClient } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import { reduceEvents, type RunMeta, type TradingEvent } from "@/app/utils/reduceEvents";
 import { reduceResearch, type ResearchEvent } from "@/app/utils/reduceResearch";
 
-export type StateType = {
-  messages: Message[];
-  todos: TodoItem[];
-  files: Record<string, string>;
-  email?: {
-    id?: string;
-    subject?: string;
-    page_content?: string;
-  };
-  ui?: any;
-};
+// trade_loop's graph state is just the run input + status; the trading data rides the `custom` stream.
+export type StateType = Record<string, unknown>;
 
-export function useChat({
-  activeAssistant,
-  onHistoryRevalidate,
-  thread,
-}: {
-  activeAssistant: Assistant | null;
-  onHistoryRevalidate?: () => void;
-  thread?: UseStreamThread<StateType>;
-}) {
+export function useChat({ activeAssistant }: { activeAssistant: Assistant | null }) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const client = useClient();
 
@@ -52,6 +28,9 @@ export function useChat({
   // Mirrors stream.isLoading so onError (which can't read `stream` while it's being constructed) can tell a
   // mid-run drop from a load-time stale-thread 404 — we only reset the threadId in the latter case.
   const loadingRef = useRef(false);
+  // The input of the run we last launched — lets the status bar say BACKTEST / LIVE · SIM / LIVE · PAPER
+  // before RUN_META arrives. ponytail: lost on reload (a rejoined run shows its RUN_META only).
+  const [lastInput, setLastInput] = useState<Record<string, unknown> | null>(null);
 
   // Only hand useStream a threadId we've verified exists. The dev thread store is wiped on server restart,
   // so a URL threadId can be stale — and the SDK's history fetch for a missing thread rejects a promise it
@@ -74,10 +53,6 @@ export function useChat({
     threadId: streamThreadId,
     onThreadId: handleThreadCreated,
     defaultHeaders: { "x-auth-scheme": "langsmith" },
-    // Enable fetching state history when switching to existing threads
-    fetchStateHistory: true,
-    // Revalidate thread list when stream finishes, errors, or creates new thread
-    onFinish: onHistoryRevalidate,
     onError: (err: unknown) => {
       // The dev thread store is ephemeral (cleared on server restart / expiry). A URL threadId that
       // no longer exists 404s on load — drop it so the app resets to a fresh thread, not a crash. But
@@ -85,9 +60,7 @@ export function useChat({
       // thread — leave it so reconnectOnMount can rejoin, and let the UI surface stream.error instead.
       const msg = err instanceof Error ? err.message : String(err);
       if (/not found|404/i.test(msg) && !loadingRef.current) setThreadId(null);
-      onHistoryRevalidate?.();
     },
-    onCreated: onHistoryRevalidate,
     onCustomEvent: (event: unknown) => {
       const e = event as TradingEvent;
       if (!e || typeof e.type !== "string" || !("run_id" in (e as object))) return;
@@ -98,7 +71,6 @@ export function useChat({
       if (e.ts) setLastCheckAt(e.ts); // heartbeat: bump on every event, incl. dropped SKIPs
       if (e.type !== "SKIP") setEvents((prev) => [...prev, e]);
     },
-    experimental_thread: thread,
   });
 
   useEffect(() => {
@@ -157,130 +129,27 @@ export function useChat({
   // onThreadId with the new id, repopulating both; pendingRun is cleared so that can't re-trigger a submit.
   useEffect(() => {
     if (!pendingRun || threadId || streamThreadId) return;
-    stream.submit(pendingRun as Partial<StateType>, {
+    setLastInput(pendingRun);
+    stream.submit(pendingRun, {
       config: { ...(activeAssistant?.config ?? {}), recursion_limit: 100 },
     });
     setPendingRun(null);
-    onHistoryRevalidate?.();
-  }, [pendingRun, threadId, streamThreadId, stream, activeAssistant?.config, onHistoryRevalidate]);
-
-  const sendMessage = useCallback(
-    (content: string) => {
-      const newMessage: Message = { id: uuidv4(), type: "human", content };
-      stream.submit(
-        { messages: [newMessage] },
-        {
-          optimisticValues: (prev) => ({
-            messages: [...(prev.messages ?? []), newMessage],
-          }),
-          config: { ...(activeAssistant?.config ?? {}), recursion_limit: 100 },
-        }
-      );
-      // Update thread list immediately when sending a message
-      onHistoryRevalidate?.();
-    },
-    [stream, activeAssistant?.config, onHistoryRevalidate]
-  );
-
-  const runSingleStep = useCallback(
-    (
-      messages: Message[],
-      checkpoint?: Checkpoint,
-      isRerunningSubagent?: boolean,
-      optimisticMessages?: Message[]
-    ) => {
-      if (checkpoint) {
-        stream.submit(undefined, {
-          ...(optimisticMessages
-            ? { optimisticValues: { messages: optimisticMessages } }
-            : {}),
-          config: activeAssistant?.config,
-          checkpoint: checkpoint,
-          ...(isRerunningSubagent
-            ? { interruptAfter: ["tools"] }
-            : { interruptBefore: ["tools"] }),
-        });
-      } else {
-        stream.submit(
-          { messages },
-          { config: activeAssistant?.config, interruptBefore: ["tools"] }
-        );
-      }
-    },
-    [stream, activeAssistant?.config]
-  );
-
-  const setFiles = useCallback(
-    async (files: Record<string, string>) => {
-      if (!threadId) return;
-      // TODO: missing a way how to revalidate the internal state
-      // I think we do want to have the ability to externally manage the state
-      await client.threads.updateState(threadId, { values: { files } });
-    },
-    [client, threadId]
-  );
-
-  const continueStream = useCallback(
-    (hasTaskToolCall?: boolean) => {
-      stream.submit(undefined, {
-        config: {
-          ...(activeAssistant?.config || {}),
-          recursion_limit: 100,
-        },
-        ...(hasTaskToolCall
-          ? { interruptAfter: ["tools"] }
-          : { interruptBefore: ["tools"] }),
-      });
-      // Update thread list when continuing stream
-      onHistoryRevalidate?.();
-    },
-    [stream, activeAssistant?.config, onHistoryRevalidate]
-  );
-
-  const markCurrentThreadAsResolved = useCallback(() => {
-    stream.submit(null, { command: { goto: "__end__", update: null } });
-    // Update thread list when marking thread as resolved
-    onHistoryRevalidate?.();
-  }, [stream, onHistoryRevalidate]);
-
-  const resumeInterrupt = useCallback(
-    (value: any) => {
-      stream.submit(null, { command: { resume: value } });
-      // Update thread list when resuming from interrupt
-      onHistoryRevalidate?.();
-    },
-    [stream, onHistoryRevalidate]
-  );
+  }, [pendingRun, threadId, streamThreadId, stream, activeAssistant?.config]);
 
   const stopStream = useCallback(() => {
     stream.stop();
   }, [stream]);
 
   return {
-    stream,
-    todos: stream.values.todos ?? [],
-    files: stream.values.files ?? {},
-    email: stream.values.email,
-    ui: stream.values.ui,
-    setFiles,
-    messages: stream.messages,
     isLoading: stream.isLoading,
-    isThreadLoading: stream.isThreadLoading,
     error: stream.error, // surfaced on the dashboard so a dropped/failed run is visible, not a silent freeze
-
-    interrupt: stream.interrupt,
-    getMessagesMetadata: stream.getMessagesMetadata,
-    sendMessage,
-    runSingleStep,
-    continueStream,
     stopStream,
-    markCurrentThreadAsResolved,
-    resumeInterrupt,
     // trading dashboard
     events,
     runMeta,
     lastCheckAt,
     startRun,
+    lastInput,
     trades: reduced.trades,
     equityCurve: reduced.equityCurve,
     pnl: reduced.pnl,
