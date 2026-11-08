@@ -78,6 +78,12 @@ In the UI's settings dialog enter **Deployment URL** `http://127.0.0.1:2024` and
 server fails at boot with `Variable 'agent' ... is not a Graph or Graph factory function`.
 `anthropic:` models are served as-is.
 
+**Tool-round cap (`anthropic:` path):** the orchestrator and each analyst sub-agent get `max_tool_rounds`
+(default 6, `config/agents.yaml`) model turns that call tools. On the next turn their tools are removed and they
+are told to answer, through their structured `AnalystView` / `Verdict`, so a model stuck in a tool loop still
+returns a view instead of running until the gate fails closed (`tool_rounds.py`, adapted from
+[TradingAgents](https://github.com/TauricResearch/TradingAgents), Apache-2.0).
+
 ## Strategy R&D: research loop → walk-forward optimizer → locked holdout
 
 Three stages, each with a different job, so that *no single step can both propose and approve a change*.
