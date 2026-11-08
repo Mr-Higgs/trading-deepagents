@@ -234,6 +234,7 @@ class AgentsConfig:
     cache: bool = True  # cache LLM verdicts by signal so backtest re-runs are deterministic and free
     lessons: bool = False  # show the gate the most recent post-trade lessons (trading_agent.lessons), point-in-time
     lessons_n: int = 5
+    max_tool_rounds: int = 6  # per agent (orchestrator and each analyst): tool-calling turns before it must answer
 
 
 @dataclass(frozen=True)
@@ -457,6 +458,7 @@ def load_config(config_dir: str | Path) -> AppConfig:
         cache=bool(agents_raw.get("cache", True)),
         lessons=bool(agents_raw.get("lessons", False)),
         lessons_n=int(agents_raw.get("lessons_n", 5)),
+        max_tool_rounds=int(agents_raw.get("max_tool_rounds", 6)),
     )
 
     return AppConfig(pairs=pairs, sessions=sessions, risk=risk, strategy=strategy, config_dir=config_dir, agents=agents)

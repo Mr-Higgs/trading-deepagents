@@ -12,6 +12,7 @@ from langchain.chat_models import init_chat_model
 
 from trading_agent.config import AppConfig
 from trading_agent.strategy.agents.schemas import AnalystView, Verdict
+from trading_agent.strategy.agents.tool_rounds import ToolRoundCap
 from trading_agent.strategy.agents.tools import cftc_cot, economic_calendar, macro_context
 
 GATE_PROMPT = (
@@ -101,17 +102,20 @@ def build_orchestrator(cfg: AppConfig):
     if a.technical:
         subagents.append(
             {"name": "technical-analyst", "description": "Judges the Ichimoku technical context of the proposed trade.",
-             "system_prompt": TECHNICAL_PROMPT, "model": analyst_model, "tools": [], "response_format": AnalystView}
+             "system_prompt": TECHNICAL_PROMPT, "model": analyst_model, "tools": [], "response_format": AnalystView,
+             "middleware": [ToolRoundCap(a.max_tool_rounds, "technical-analyst")]}
         )
     if a.fundamental:
         subagents.append(
             {"name": "fundamental-analyst", "description": "Integrated-Macro view: fundamental-trend (rates/trade/sentiment/surprises) + price dislocation.",
-             "system_prompt": fundamental_prompt, "model": analyst_model, "tools": [economic_calendar, macro_context], "response_format": AnalystView}
+             "system_prompt": fundamental_prompt, "model": analyst_model, "tools": [economic_calendar, macro_context], "response_format": AnalystView,
+             "middleware": [ToolRoundCap(a.max_tool_rounds, "fundamental-analyst")]}
         )
     if a.sentiment:
         subagents.append(
             {"name": "sentiment-analyst", "description": "Checks CFTC COT speculative positioning.",
-             "system_prompt": sentiment_prompt, "model": analyst_model, "tools": [cftc_cot], "response_format": AnalystView}
+             "system_prompt": sentiment_prompt, "model": analyst_model, "tools": [cftc_cot], "response_format": AnalystView,
+             "middleware": [ToolRoundCap(a.max_tool_rounds, "sentiment-analyst")]}
         )
 
     base_prompt = SIGNAL_PROMPT if a.authority == "signal" else GATE_PROMPT
@@ -127,4 +131,5 @@ def build_orchestrator(cfg: AppConfig):
         system_prompt=base_prompt + posture,
         subagents=subagents,
         response_format=Verdict,
+        middleware=[ToolRoundCap(a.max_tool_rounds, "orchestrator")],
     )
