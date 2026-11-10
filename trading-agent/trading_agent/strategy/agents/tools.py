@@ -344,3 +344,17 @@ def macro_context(instrument: str = "AUD_USD", as_of: str | None = None) -> str:
         return macro_snapshot(resolve_as_of(as_of))
     except Exception:  # noqa: BLE001 - any failure degrades to neutral; the gate must not crash on a flaky feed
         return "Macro context unavailable."
+
+
+def analyst_digest(instrument: str, cftc_code: str, *, fundamental: bool, sentiment: bool) -> str:
+    """Analyst data fetched in code for single-call gates (devin-cli, typesafe) that have no sub-agents.
+
+    Same tools the deepagents analysts call; they read the point-in-time clock and fail soft to 'unavailable'.
+    """
+    parts = []
+    if fundamental:
+        parts.append("Economic calendar: " + economic_calendar.invoke({"instrument": instrument}))
+        parts.append("Macro context: " + macro_context.invoke({"instrument": instrument}))
+    if sentiment:
+        parts.append("CFTC COT positioning: " + cftc_cot.invoke({"cftc_code": cftc_code}))
+    return "\n".join(parts) or "No analyst data enabled."

@@ -1,6 +1,8 @@
 # Phase-2 LLM decision layer. Applies to backtest, live, and demo (any run built via _make_strategy).
 # Gate model: `devin-cli:<model>` uses the Devin CLI login (`devin auth login`; list models with `devin models`) and
 # no API key. `anthropic:<model>` uses the deepagents orchestrator + sub-agents and needs ANTHROPIC_API_KEY in .env.
+# `typesafe:jev-1.13.0` uses TypeSafe's Jev decision model (calibrated p(take) -> approve/veto, gate authority only)
+# and needs TYPESAFE_API_KEY in .env. Pin a version (not jev-latest) so cached verdicts and thresholds stay valid.
 # Absent file => deterministic mode (no LLM in the loop).
 mode: deterministic                       # deterministic | agent
 authority: gate                           # gate = approve/veto only | signal = LLM may emit refined direction/entry/stop/tp
@@ -15,4 +17,18 @@ cftc_code: "232741"                       # CFTC contract code for the sentiment
 lessons: false                            # true = append the last `lessons_n` post-trade lessons (python -m trading_agent.lessons) to the gate prompt; point-in-time in backtests
 lessons_n: 5
 max_tool_rounds: 6                        # anthropic: path only; per agent, tool-calling turns before it is made to answer (stops tool loops)
+# jev_threshold: 0.5                      # typesafe: only; approve iff p(take) >= this (default 0.5, or 0.65 with veto_default)
 cache: true                               # cache verdicts by signal so backtest re-runs are deterministic & free (--refresh forces fresh)
+
+# Who proposes trades, independent of `mode` (the gate above still applies when mode: agent):
+#   rules = the single strategy named in strategy_v1.yaml
+#   jev   = TypeSafe Jev picks the setup, stop/TP and exits from code-built menus (needs TYPESAFE_API_KEY).
+#           Size and every risk.yaml gate stay code-owned. Decisions cache to data/jev_cache.jsonl when cache: true.
+trader: rules
+jev:
+  model: jev-1.13.0                       # pinned; jev-latest would silently change cached decisions
+  setups: [ichimoku_pullback, ichimoku_breakout, ichimoku_cloud_breakout, ichimoku_confluence]
+  discretionary: false                    # true = also offer a rule-free long/short every in-session bar (a call per bar)
+  min_setup_prob: 0.5                     # chosen setup's probability must clear this, else no trade
+  manage_exits: true                      # per-bar hold / close_now / breakeven / trail_kijun on open positions (stops only tighten)
+  min_exit_prob: 0.6                      # non-hold exit actions must clear this, else hold

@@ -1,3 +1,14 @@
+> [!CAUTION]
+> ## ⚠️ DISCLAIMER: READ BEFORE USING
+> **This project is for EDUCATIONAL PURPOSES ONLY.**
+>
+> - **I am NOT a financial advisor.** Nothing here is financial advice.
+> - **Trading forex is high risk.** You can lose money, and backtests do not guarantee future results.
+> - **You use this entirely AT YOUR OWN RISK and of your own accord.** I accept no liability for any losses.
+> - **This runs locally on YOUR OWN device.** It contains **NO malicious code, malware, or ransomware.** All source code is open, so review it before running.
+>
+> **[Read the full disclaimer →](../DISCLAIMER.md)**
+
 # trading-agent — Phase 1 (deterministic forex money-core)
 
 A disciplined, **deterministic** forex paper-trading system. No LLM in the trade loop: the model
@@ -77,6 +88,35 @@ In the UI's settings dialog enter **Deployment URL** `http://127.0.0.1:2024` and
 `graph.py` wraps it in a one-node `StateGraph` so `trade_gate` still loads. Without that wrapper the
 server fails at boot with `Variable 'agent' ... is not a Graph or Graph factory function`.
 `anthropic:` models are served as-is.
+
+**Jev gate (`typesafe:`):** `orchestrator_model: typesafe:jev-1.13.0` returns a `JevGate`, which is also a plain
+`.invoke()` object and is wrapped the same way. It uses TypeSafe's Jev decision model, which returns calibrated
+probabilities instead of text. It asks one yes/no question, `take_trade`, about a JSON state holding the trade prompt,
+code-computed categorical facts (price vs cloud, tenkan vs kijun, dislocation) and the analyst data. It approves iff
+`p(take) >= jev_threshold` (0.5 by default, or 0.65 with `veto_default`). `news_risk` / `htf_conflict` probabilities are
+logged in the rationale for diagnostics only. It supports gate authority only, because Jev cannot propose prices.
+It needs `TYPESAFE_API_KEY`. To sweep thresholds without extra API calls, run one backtest at `jev_threshold: 0`
+(approve everything, so every SIGNAL logs its `p_take`), then apply candidate thresholds offline.
+
+**Jev trader (`trader: jev` in `agents.yaml`):** `JevTrader` (`strategy/jev_trader.py`) replaces the single rule
+strategy. Jev picks setups, entries and exits, but only from menus that code builds (`strategy/jev_levels.py`), because
+it returns probabilities over given options and never writes a price.
+- **Setup:** every strategy in `jev.setups` runs on the bar. Those that fire, plus `discretionary_long`/`_short` when
+  `jev.discretionary`, plus `no_trade`, become one Choice question over categorical market facts. If nothing fires and
+  discretionary is off, no call is made.
+- **Levels:** a second call picks a stop (the setup's own, bias Kijun, trend cloud, entry swing, ATR 1.5/2/3×) and a TP
+  (the setup's own, ATR 2/3/4×, bias swing, Ichimoku levels ahead). Code keeps the highest joint-probability pair that
+  clears `risk.min_rr` after the same spread/slippage cost the RiskEngine charges.
+- **Exits:** the engine calls the optional `strategy.manage(...)` hook every bar. Jev picks `hold`, `close_now`,
+  `breakeven` or `trail_kijun` per open position, logged as `CLOSE_SIGNAL` / `STOP_MODIFIED` with reason `jev_*`.
+  Stop options only ever tighten. A non-hold action needs `jev.min_exit_prob`.
+- **Failure handling:** an entry-side error means no trade (`jev_error:*`). An exit-side error means hold (`MANAGE_SKIP`),
+  and the existing stop and TP stay live. The decision appears under `features.jev` on every SIGNAL.
+- It composes with `mode: agent`: the LLM gate wraps `JevTrader` and can still veto its picks. `trader` applies in every
+  mode, including `--strategy deterministic`. Decisions cache to `data/jev_cache.jsonl`, so backtest re-runs are free
+  and identical; live runs never replay.
+- Jev's deterministic exits stack with `risk.management` (breakeven, trail, scale-out) and `exit_on_kijun_cross`.
+  Turn those off for a clean A/B against the rule baseline.
 
 **Tool-round cap (`anthropic:` path):** the orchestrator and each analyst sub-agent get `max_tool_rounds`
 (default 6, `config/agents.yaml`) model turns that call tools. On the next turn their tools are removed and they

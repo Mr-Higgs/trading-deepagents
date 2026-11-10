@@ -83,16 +83,9 @@ class DevinCliGate:
         self.run = run
 
     def _analyst_data(self) -> str:
-        """Same tools the deepagents analysts call; they read the point-in-time clock and fail soft to 'unavailable'."""
-        from trading_agent.strategy.agents.tools import cftc_cot, economic_calendar, macro_context
+        from trading_agent.strategy.agents.tools import analyst_digest
 
-        parts = []
-        if self.fundamental:
-            parts.append("Economic calendar: " + economic_calendar.invoke({"instrument": self.instrument}))
-            parts.append("Macro context: " + macro_context.invoke({"instrument": self.instrument}))
-        if self.sentiment:
-            parts.append("CFTC COT positioning: " + cftc_cot.invoke({"cftc_code": self.cftc_code}))
-        return "\n".join(parts) or "No analyst data enabled."
+        return analyst_digest(self.instrument, self.cftc_code, fundamental=self.fundamental, sentiment=self.sentiment)
 
     def invoke(self, inputs: dict) -> dict:
         trade = inputs["messages"][-1]["content"]

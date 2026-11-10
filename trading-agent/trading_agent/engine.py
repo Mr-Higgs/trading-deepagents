@@ -131,6 +131,9 @@ def run(
         for partial in manage_open_trades(backend, bar, snapshot, now, cfg, log):
             equity = _apply_exit(partial, equity, day, cfg, log, now)
         signal_exit(backend, snapshot, now, cfg, log)
+        manage = getattr(strategy, "manage", None)  # optional strategy-owned exits (JevTrader); rule strategies have none
+        if manage is not None:
+            manage(backend, bar, snapshot, now, log)
 
         # 2. gates (each blocked entry logged with its reason)
         if day.halted:

@@ -68,7 +68,14 @@ def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool =
     `use_cache` gates the verdict cache (subject to `cfg.agents.cache`): on for backtests so re-runs are
     deterministic/free, off for live so decisions are always fresh. `refresh` forces fresh calls (still writes).
     """
-    inner = build_strategy(cfg.strategy, cfg.pair)
+    if cfg.agents.trader == "jev":  # Jev picks setups/levels/exits; the LLM gate below can still veto
+        from trading_agent.strategy.agents.verdict_cache import VerdictCache
+        from trading_agent.strategy.jev_trader import JEV_CACHE, JevTrader
+
+        jev_cache = VerdictCache(JEV_CACHE, refresh=refresh) if (use_cache and cfg.agents.cache) else None
+        inner = JevTrader(cfg, cache=jev_cache)
+    else:
+        inner = build_strategy(cfg.strategy, cfg.pair)
     mode = cfg.agents.mode if choice == "config" else choice
     if mode != "agent":
         return inner
@@ -83,9 +90,12 @@ def _make_strategy(cfg, choice: str, *, refresh: bool = False, use_cache: bool =
         from trading_agent.lessons import LessonStore
 
         lessons = LessonStore()
+    model_key = cfg.agents.orchestrator_model
+    if model_key.startswith("typesafe:") and cfg.agents.jev_threshold is not None:
+        model_key += f"@t{cfg.agents.jev_threshold}"  # the threshold decides approve/veto, so verdicts must not replay across it
     return AgentStrategy(
         inner, build_orchestrator(cfg), cfg.pair,
-        authority=cfg.agents.authority, cache=cache, orchestrator_model=cfg.agents.orchestrator_model,
+        authority=cfg.agents.authority, cache=cache, orchestrator_model=model_key,
         point_in_time=point_in_time, veto_default=cfg.agents.veto_default, lessons=lessons, lessons_n=cfg.agents.lessons_n,
     )
 

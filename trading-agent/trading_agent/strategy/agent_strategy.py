@@ -91,6 +91,12 @@ class AgentStrategy:
         # veto, or any non-approve decision in gate mode (incl. a stray "modify") -> no trade
         return StrategyResult(None, f"llm_veto:{verdict.confidence:.2f}:{verdict.rationale[:120]}")
 
+    def manage(self, backend, bar, snapshot: dict[str, pd.DataFrame], now: datetime, log) -> None:
+        """Forward the engine's exit hook to an inner strategy that manages its own trades (JevTrader); else no-op."""
+        inner = getattr(self.inner, "manage", None)
+        if inner is not None:
+            inner(backend, bar, snapshot, now, log)
+
     def _annotate_dislocation(self, signal: Signal, snapshot: dict[str, pd.DataFrame]) -> Signal:
         """Attach a code-computed price-dislocation z-score (AQR Opportunistic-Macro proxy) into features
         so the macro analyst can reason over how far price sits from a recent fair-value anchor. Fail-soft:
@@ -117,14 +123,17 @@ class AgentStrategy:
             cached = self.cache.get(key)
             if cached is not None:
                 return _coerce(cached)  # replay a prior decision: deterministic, zero tokens
+        inputs: dict = {"messages": [{"role": "user", "content": prompt}]}
+        if getattr(self.orchestrator, "accepts_signal", False):
+            inputs["signal"] = signal  # typed gates (Jev) derive code-computed facts; the prompt already reflects these features
         try:
             if self.point_in_time and self._now is not None:
                 from trading_agent.strategy.agents.tools import backtest_clock
 
                 with backtest_clock(self._now):
-                    result = self.orchestrator.invoke({"messages": [{"role": "user", "content": prompt}]})
+                    result = self.orchestrator.invoke(inputs)
             else:
-                result = self.orchestrator.invoke({"messages": [{"role": "user", "content": prompt}]})
+                result = self.orchestrator.invoke(inputs)
         except Exception:  # noqa: BLE001 - any orchestrator/LLM/network failure -> veto (no trade)
             return None
         v = _coerce(result.get("structured_response") if isinstance(result, dict) else None)

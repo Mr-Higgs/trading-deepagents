@@ -90,6 +90,10 @@ def build_orchestrator(cfg: AppConfig):
         from trading_agent.strategy.agents.devin_gate import DevinCliGate
 
         return DevinCliGate(cfg)
+    if a.orchestrator_model.startswith("typesafe:"):
+        from trading_agent.strategy.agents.jev_gate import JevGate
+
+        return JevGate(cfg)
     analyst_model = init_chat_model(a.analyst_model)
 
     # sentiment analyst: tell it which CFTC contract to pull so a non-AUD instrument uses the right code

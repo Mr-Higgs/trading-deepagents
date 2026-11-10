@@ -1,3 +1,14 @@
+> [!CAUTION]
+> ## ⚠️ DISCLAIMER: READ BEFORE USING
+> **This project is for EDUCATIONAL PURPOSES ONLY.**
+>
+> - **I am NOT a financial advisor.** Nothing here is financial advice.
+> - **Trading forex is high risk.** You can lose money, and backtests do not guarantee future results.
+> - **You use this entirely AT YOUR OWN RISK and of your own accord.** I accept no liability for any losses.
+> - **This runs locally on YOUR OWN device.** It contains **NO malicious code, malware, or ransomware.** All source code is open, so review it before running.
+>
+> **[Read the full disclaimer →](DISCLAIMER.md)**
+
 <div align="center">
   <a href="https://docs.langchain.com/oss/python/deepagents/overview#deep-agents-overview">
     <picture>

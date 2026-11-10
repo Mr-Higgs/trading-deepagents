@@ -218,6 +218,21 @@ class StrategyConfig:
         return tfs
 
 
+JEV_SETUPS = ("ichimoku_pullback", "ichimoku_breakout", "ichimoku_cloud_breakout", "ichimoku_confluence")
+
+
+@dataclass(frozen=True)
+class JevTraderConfig:
+    """`trader: jev`: TypeSafe Jev picks setups, stop/TP and exits from code-built menus (strategy/jev_trader.py)."""
+
+    model: str = "jev-1.13.0"  # pin a version: cached decisions and thresholds are only valid for one model
+    setups: tuple[str, ...] = JEV_SETUPS  # rule-based setups whose signals become Jev's candidates
+    discretionary: bool = False  # also offer a rule-free long/short every in-session bar (one call per bar)
+    min_setup_prob: float = 0.5  # the chosen setup's probability must clear this, else no trade
+    manage_exits: bool = True  # per-bar hold / close / breakeven / trail decision on open positions
+    min_exit_prob: float = 0.6  # a non-hold exit action must clear this, else hold
+
+
 @dataclass(frozen=True)
 class AgentsConfig:
     """Phase-2 LLM confirmation gate. Defaults => deterministic; agents.yaml is optional."""
@@ -235,6 +250,9 @@ class AgentsConfig:
     lessons: bool = False  # show the gate the most recent post-trade lessons (trading_agent.lessons), point-in-time
     lessons_n: int = 5
     max_tool_rounds: int = 6  # per agent (orchestrator and each analyst): tool-calling turns before it must answer
+    jev_threshold: float | None = None  # typesafe: gate only; approve iff p(take) >= this. None => 0.5, or 0.65 with veto_default
+    trader: str = "rules"  # "rules" = the strategy_v1.yaml `name:` strategy | "jev" = JevTrader (applies in every mode)
+    jev: JevTraderConfig = field(default_factory=JevTraderConfig)
 
 
 @dataclass(frozen=True)
@@ -258,6 +276,29 @@ class AppConfig:
 def _load_yaml(path: Path) -> dict[str, Any]:
     with path.open() as f:
         return yaml.safe_load(f) or {}
+
+
+def _trader(name: object) -> str:
+    if name not in ("rules", "jev"):
+        msg = f"agents.yaml trader must be 'rules' or 'jev' (got {name!r})"
+        raise ValueError(msg)
+    return str(name)
+
+
+def _jev_trader(raw: dict[str, Any]) -> JevTraderConfig:
+    setups = tuple(raw.get("setups") or JEV_SETUPS)
+    unknown = sorted(set(setups) - set(JEV_SETUPS))
+    if unknown:
+        msg = f"agents.yaml jev.setups has unknown setups {unknown}; choose from {list(JEV_SETUPS)}"
+        raise ValueError(msg)
+    return JevTraderConfig(
+        model=str(raw.get("model", "jev-1.13.0")),
+        setups=setups,
+        discretionary=bool(raw.get("discretionary", False)),
+        min_setup_prob=float(raw.get("min_setup_prob", 0.5)),
+        manage_exits=bool(raw.get("manage_exits", True)),
+        min_exit_prob=float(raw.get("min_exit_prob", 0.6)),
+    )
 
 
 def load_config(config_dir: str | Path) -> AppConfig:
@@ -459,6 +500,9 @@ def load_config(config_dir: str | Path) -> AppConfig:
         lessons=bool(agents_raw.get("lessons", False)),
         lessons_n=int(agents_raw.get("lessons_n", 5)),
         max_tool_rounds=int(agents_raw.get("max_tool_rounds", 6)),
+        jev_threshold=None if agents_raw.get("jev_threshold") is None else float(agents_raw["jev_threshold"]),
+        trader=_trader(agents_raw.get("trader", "rules")),
+        jev=_jev_trader(agents_raw.get("jev") or {}),
     )
 
     return AppConfig(pairs=pairs, sessions=sessions, risk=risk, strategy=strategy, config_dir=config_dir, agents=agents)
